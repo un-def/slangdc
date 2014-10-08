@@ -37,7 +37,7 @@ class DCClient:
             password='password'
                 можно не указывать, если не требуется
             encoding='enc'
-                кодировка хаба, по умолчанию windows-1251
+                кодировка хаба, по умолчанию utf-8
             timeout=sec
                 таймаут получения данных из сокета в секундах; по таймауту
                 recv() возбуждает DCError
@@ -162,7 +162,7 @@ class DCClient:
                 send('hello', '', b'bye') --> b'hello|bye|'
 
             encoding=
-                'enc' - декодировать строки как 'enc'
+                'enc' - кодировать строки в 'enc'
                 None (по умолчанию) - кодировка по умолчанию
         """
         data = bytearray()

@@ -4,7 +4,7 @@ from datetime import datetime
 import slangdc
 
 settings = {
-    'address': 'dc.zet',
+    'address': 'allavtovo.ru',
     'nick': 'slangdc',
     'encoding': 'windows-1251',
     'timeout': 300
