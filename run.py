@@ -42,8 +42,8 @@ class Printer(threading.Thread):
 
 class Typer(threading.Thread):
 
-    def __init__(self, hub):
-        self.hub = hub
+    def __init__(self, dc):
+        self.dc = dc
         threading.Thread.__init__(self)
 
     def run(self):
@@ -53,28 +53,28 @@ class Typer(threading.Thread):
             if message == '!!quit':
                 flag_ = False
             elif message:
-                hub.chat_send(message)
+                dc.chat_send(message)
         print("@close Typer")
 
 
 
 flag_ = True
 
-hub = slangdc.DCClient(**settings)
+dc = slangdc.DCClient(**settings)
 
-printer = Printer(hub.message_queue)
+printer = Printer(dc.message_queue)
 printer.start()
 
-connected = hub.connect()
+connected = dc.connect()
 
 if not connected:
     time.sleep(1)
     flag_ = False
 else:
-    typer = Typer(hub)
+    typer = Typer(dc)
     typer.start()
     while flag_:
-        success = hub.receive()
+        success = dc.receive()
         if not success:
             time.sleep(0.5)
             flag_ = False
