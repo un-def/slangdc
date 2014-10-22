@@ -18,11 +18,13 @@ class DCError(Exception):
 
     def __init__(self, error, close=None):
         """ error="текст ошибки"
-            close=<socket object>, который надо закрыть, или None
+            close=экземпляр DCClient, если нужно закрыть сокет и установить
+                атрибут connected в False
         """
         self.error = error
         if close:
-            close.close()   # закрываем сокет
+            close.connected = False
+            close.socket.close()
     def __str__(self):
         return self.error
 
@@ -80,6 +82,7 @@ class DCClient:
         self.slots = slots
         self.encoding = encoding
         if timeout: self.timeout = timeout
+        self.connected = False
         self.recv_list = []
         self.message_queue = MQueue()
         self.hubname = None
@@ -100,11 +103,9 @@ class DCClient:
             try:
                 self.socket.connect((host, port))
             except socket.timeout:
-                raise DCSocketError("connection timeout ({0} s)".format(self.timeout), close=self.socket)
-                return False
+                raise DCSocketError("connection timeout ({0} s)".format(self.timeout), close=self)
             except OSError as err:
-                raise DCSocketError(err.strerror, close=self.socket)
-                return False
+                raise DCSocketError(err.strerror, close=self)
             data = self.recv(encoding=False)   # $Lock получаем без декодирования (bytes)
             lock_received = re.search(b'^\$Lock (.+) Pk=.+$', data)
             if not lock_received:
@@ -151,21 +152,20 @@ class DCClient:
                 return False
             self.send('$Version 1,0091', '$MyINFO $ALL {0} {1}<slangdc V:{2},M:P,H:0/1/0,S:{3}>$ $100 ${4}${5}$'.format(self.nick, self.desc, version, self.slots, self.email, self.share))
             return True
-
         self.message_queue.mput(type=MSGINFO, text="connecting to {0}".format(self.address))
         try:
-            connected = _connect(self)
+            self.connected = _connect(self)
         except DCSocketError as err:
             self.message_queue.mput(type=MSGERR, text="[socket] {0}".format(err))
-            return False
         else:
-            if not connected:
+            if not self.connected:
                 self.disconnect()
             else:
                 self.message_queue.mput(type=MSGINFO, text="connected")
-            return connected   # True или False
+        return self.connected
 
     def disconnect(self):
+        self.connected = False
         self.socket.close()
         self.message_queue.mput(type=MSGINFO, text="disconnected")
 
@@ -190,11 +190,11 @@ class DCClient:
                 try:
                     chunk = self.socket.recv(1024)
                 except socket.timeout:
-                    raise DCSocketError("receive timeout ({} s)".format(self.timeout), close=self.socket)
+                    raise DCSocketError("receive timeout ({} s)".format(self.timeout), close=self)
                 except OSError as err:
-                    raise DCSocketError(err.strerror, close=self.socket)
+                    raise DCSocketError(err.strerror, close=self)
                 if not chunk:   # len(recv) == 0 --> удаленный сокет закрыт
-                    raise DCSocketError("closed", close=self.socket)
+                    raise DCSocketError("closed", close=self)
                 recv.extend(chunk)
                 if chunk.endswith(b'|'):
                     break
@@ -232,7 +232,7 @@ class DCClient:
         try:
             self.socket.send(data)
         except OSError as err:
-            raise DCSocketError(err.strerror, close=self.socket)
+            raise DCSocketError(err.strerror, close=self)
 
     def chat_send(self, message, encoding=None):
         self.send('<{0}> {1}'.format(self.nick, message), encoding=encoding)

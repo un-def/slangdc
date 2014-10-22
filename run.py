@@ -18,20 +18,19 @@ settings = {
 
 class Printer(threading.Thread):
 
-    def __init__(self, queue):
-        self.queue = queue
+    def __init__(self, dc):
+        self.dc = dc
         threading.Thread.__init__(self)
 
     def run(self):
-        global flag_
         prefixes = {
             slangdc.MSGINFO: "***",
             slangdc.MSGERR: "xxx",
             slangdc.MSGCHAT: "",
             slangdc.MSGPM: "## PM ##"
         }
-        while flag_:
-            message = self.queue.mget()
+        while True:
+            message = self.dc.message_queue.mget()
             if message:
                 sep = prefixes[message['type']]
                 timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
@@ -47,35 +46,25 @@ class Typer(threading.Thread):
         threading.Thread.__init__(self)
 
     def run(self):
-        global flag_
-        while flag_:
+        while self.dc.connected:
             message = input()
             if message == '!!quit':
-                flag_ = False
+                self.dc.disconnect()
             elif message:
                 dc.chat_send(message)
         print("@close Typer")
 
 
-
-flag_ = True
-
 dc = slangdc.DCClient(**settings)
 
-printer = Printer(dc.message_queue)
+printer = Printer(dc)
 printer.start()
 
-connected = dc.connect()
-
-if not connected:
-    time.sleep(1)
-    flag_ = False
-else:
+dc.connect()
+if dc.connected:
     typer = Typer(dc)
     typer.start()
-    while flag_:
-        success = dc.receive()
-        if not success:
-            time.sleep(0.5)
-            flag_ = False
-    print("@close main")
+    while dc.connected:
+        dc.receive()
+time.sleep(0.5)
+print("@close main")
