@@ -240,6 +240,10 @@ class DCClient:
             elif data.startswith('$HubTopic '):
                 self.hubtopic = data[10:]
                 self.message_queue.mput("*** HubTopic: {0}".format(self.hubtopic))
+            else:
+                pm = re.search('^\$To: .+ From: (.+) \$(.+)$', data, flags=re.DOTALL)
+                if pm:
+                    self.message_queue.mput("%%% PM from {0}: {1}".format(pm.group(1), pm.group(2)))
             return True
 
     @staticmethod
