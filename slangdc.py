@@ -1,6 +1,7 @@
 # -*-coding: UTF-8 -*-
 # python 3.3+
 import socket
+import queue
 import random
 import string
 import re
@@ -8,6 +9,7 @@ import re
 version = '0.1.0'
 
 class DCError(Exception):
+
     def __init__(self, error, close=None):
         """ error="текст ошибки"
             close=<socket object>, который надо закрыть, или None
@@ -18,8 +20,24 @@ class DCError(Exception):
     def __str__(self):
         return self.error
 
+
 class DCSocketError(DCError):
     pass
+
+
+class MQueue(queue.Queue):
+
+    def mput(self, item):
+        self.put(item, block=False)
+
+    def mget(self):
+        try:
+            item = self.get(block=False)
+        except queue.Empty:
+            return False
+        else:
+            return item
+
 
 class DCClient:
 
@@ -51,15 +69,13 @@ class DCClient:
         self.encoding = encoding
         if timeout: self.timeout = timeout
         self.recv_list = []
-        self.message_queue = []
+        self.message_queue = MQueue()
         self.hubname = None
         self.hubtopic = None
 
     def connect(self):
         """ подключиться к хабу
-            при ошибках сокета возбуждает DCSocketError
-            при ошибках на уровне протокола (нужен пароль, неправильный
-            пароль, etc.) - DCHubError
+            возвращает True или False
         """
         def _connect(self):
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -80,7 +96,7 @@ class DCClient:
             data = self.recv(encoding=False)   # $Lock получаем без декодирования (bytes)
             lock_received = re.search(b'^\$Lock (.+) Pk=.+$', data)
             if not lock_received:
-                self.message_queue.append("*** $Lock is not received")
+                self.message_queue.mput("*** $Lock is not received")
                 return False
             lock = lock_received.group(1)
             if lock.startswith(b'EXTENDEDPROTOCOL'):   # EXTENDEDPROTOCOL - поддерживаются расширения протокола
@@ -93,53 +109,53 @@ class DCClient:
             while tries:
                 data = self.recv()
                 if not data.startswith('$'):
-                    self.message_queue.append(data)
+                    self.message_queue.mput(data)
                 elif data == '$GetPass':
                     if not self.password:
-                        self.message_queue.append("*** need a password")
+                        self.message_queue.mput("*** need a password")
                         return False
                     else:
                         self.send('$MyPass ' + self.password)
-                        self.message_queue.append("*** password has been sent")
+                        self.message_queue.mput("*** password has been sent")
                 elif data == '$BadPass':
-                    self.message_queue.append("*** wrong password")
+                    self.message_queue.mput("*** wrong password")
                     return False
                 elif data.startswith('$HubName '):
                     self.hubname = data[9:]
-                    self.message_queue.append("*** HubName: {0}".format(self.hubname))
+                    self.message_queue.mput("*** HubName: {0}".format(self.hubname))
                 elif data.startswith('$HubTopic '):
                     self.hubtopic = data[10:]
-                    self.message_queue.append("*** HubTopic: {0}".format(self.hubtopic))
+                    self.message_queue.mput("*** HubTopic: {0}".format(self.hubtopic))
                 elif data.startswith('$Supports '):
                     pass
                 elif data.startswith('$Hello '):
                     self.nick = data[7:]   # иногда хаб может выдавать другое имя
-                    self.message_queue.append("*** Hello, {0}".format(self.nick))
+                    self.message_queue.mput("*** Hello, {0}".format(self.nick))
                     break
                 else:
                     tries -= 1
             else:   # если вышли не по break (т.е. не получили Hello)
-                self.message_queue.append("*** $Hello was not received")
+                self.message_queue.mput("*** $Hello was not received")
                 return False
             self.send('$Version 1,0091', '$MyINFO $ALL {0} {1}<slangdc V:{2},M:P,H:0/1/0,S:{3}>$ $100 ${4}${5}$'.format(self.nick, self.desc, version, self.slots, self.email, self.share))
             return True
 
-        self.message_queue.append("*** connecting to {0}".format(self.address))
+        self.message_queue.mput("*** connecting to {0}".format(self.address))
         try:
             connected = _connect(self)
         except DCSocketError as err:
-            self.message_queue.append("*** [socket] {0}".format(err))
+            self.message_queue.mput("*** [socket] {0}".format(err))
             return False
         else:
             if not connected:
                 self.disconnect()
             else:
-                self.message_queue.append("*** connected")
+                self.message_queue.mput("*** connected")
             return connected   # True или False
 
     def disconnect(self):
         self.socket.close()
-        self.message_queue.append("*** disconnected")
+        self.message_queue.mput("*** disconnected")
 
     def recv(self, encoding=None):
         """ recv([encoding=False|'enc'])
@@ -212,15 +228,18 @@ class DCClient:
     def pm_send(self, to, message, encoding=None):
         self.send('$To: {0} From: {1} $<{1}> {2}'.format(to, self.nick, message), encoding=encoding)
 
-    def chat_recv(self, encoding=None):
+    def receive(self, encoding=None):
         try:
             data = self.recv(encoding=encoding)
         except DCSocketError as err:
-            self.message_queue.append('*** [socket] {0}'.format(err))
+            self.message_queue.mput('*** [socket] {0}'.format(err))
             return False
         else:
             if data and not data.startswith('$'):
-                self.message_queue.append(data)
+                self.message_queue.mput(data)
+            elif data.startswith('$HubTopic '):
+                self.hubtopic = data[10:]
+                self.message_queue.mput("*** HubTopic: {0}".format(self.hubtopic))
             return True
 
     @staticmethod

@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import threading
+import queue
 from datetime import datetime
 import time
 import slangdc
 
 settings = {
-    'address': 'dc.zet',
+    'address': 'ozerki.org',
     #'nick': 'las.cifritas',
     #'password': 'psswrd',
     #'email': 'un.def@ya.ru',
@@ -25,8 +26,8 @@ class Printer(threading.Thread):
     def run(self):
         global flag_
         while flag_:
-            if self.queue:
-                message = self.queue.pop(0)
+            message = self.queue.mget()
+            if message:
                 print(datetime.today().strftime('[%H:%M:%S]'), message)
             time.sleep(0.01)
         print("@close Printer")
@@ -44,7 +45,7 @@ class Typer(threading.Thread):
             message = input()
             if message == '!!quit':
                 flag_ = False
-            else:
+            elif message:
                 hub.chat_send(message)
         print("@close Typer")
 
@@ -66,7 +67,7 @@ else:
     typer = Typer(hub)
     typer.start()
     while flag_:
-        success = hub.chat_recv()
+        success = hub.receive()
         if not success:
             time.sleep(0.5)
             flag_ = False
