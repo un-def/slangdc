@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import threading
-import queue
 from datetime import datetime
 import time
 import slangdc
@@ -25,10 +24,18 @@ class Printer(threading.Thread):
 
     def run(self):
         global flag_
+        prefixes = {
+            slangdc.MSGINFO: "***",
+            slangdc.MSGERR: "xxx",
+            slangdc.MSGCHAT: "",
+            slangdc.MSGPM: "## PM ##"
+        }
         while flag_:
             message = self.queue.mget()
             if message:
-                print(datetime.today().strftime('[%H:%M:%S]'), message)
+                sep = prefixes[message['type']]
+                timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
+                print("{0} {1} {2}".format(timestamp, sep, message['text']))
             time.sleep(0.01)
         print("@close Printer")
 
