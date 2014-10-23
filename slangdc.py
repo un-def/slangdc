@@ -33,7 +33,7 @@ class DCSocketError(DCError):
     pass
 
 
-class MQueue(queue.Queue):
+class MsgQueue(queue.Queue):
 
     def mput(self, **item):
         """ MSGINFO, MSGERR, MSGCHAT:
@@ -84,7 +84,7 @@ class DCClient:
         if timeout: self.timeout = timeout
         self.connected = False
         self.recv_list = []
-        self.message_queue = MQueue()
+        self.message_queue = MsgQueue()
         self.hubname = None
         self.hubtopic = None
 
