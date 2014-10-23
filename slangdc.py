@@ -75,6 +75,7 @@ class DCClient:
 
     timeout = None
     debug = False
+    showjoins = False
 
     def __init__(self, address, nick=None, password=None, desc="", email="", share=0, slots=1, encoding='utf-8', timeout=None):
         """ address='dchub.com[:port]'
@@ -304,7 +305,8 @@ class DCClient:
                 elif data.startswith('$Quit '):
                     nick = data[6:]
                     self.nicklist.remove(nick)
-                    self.message_queue.mput(type=MSGINFO, text="quit {0}".format(nick))
+                    if self.showjoins:
+                        self.message_queue.mput(type=MSGINFO, text="quit {0}".format(nick))
                     return None
                 else:
                     pm = re.search('^\$To: .+ From: (.+) \$(.+)$', data, flags=re.DOTALL)
@@ -316,7 +318,8 @@ class DCClient:
                         nick = myinfo.group(1)
                         if not nick in self.nicklist:
                             self.nicklist.add(nick)
-                            self.message_queue.mput(type=MSGINFO, text="enter {0}".format(nick))
+                            if self.showjoins:
+                                self.message_queue.mput(type=MSGINFO, text="enter {0}".format(nick))
                         return True
             return data
 

@@ -50,6 +50,9 @@ class Typer(threading.Thread):
             message = input()
             if message == '!!quit':
                 self.dc.disconnect()
+            elif message == '!!showjoins':
+                dc.showjoins = not dc.showjoins
+                print("showjoins: ", dc.showjoins)
             elif message == '!!nickcount':
                 print("users: ", len(dc.nicklist._nicks))
             elif message:
