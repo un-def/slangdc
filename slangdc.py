@@ -53,6 +53,24 @@ class MsgQueue(queue.Queue):
             return item
 
 
+class NickList():
+
+    def __init__(self):
+        self._nicks = set()
+
+    def __contains__(self, nick):
+        return nick in self._nicks
+
+    def add(self, nick):
+        self._nicks.add(nick)
+
+    def remove(self, nick):
+        try:
+            self._nicks.remove(nick)
+        except KeyError:
+            pass
+
+
 class DCClient:
 
     timeout = None
@@ -85,10 +103,11 @@ class DCClient:
         self.connected = False
         self.recv_list = []
         self.message_queue = MsgQueue()
+        self.nicklist = None
         self.hubname = None
         self.hubtopic = None
 
-    def connect(self):
+    def connect(self, get_nicks=False):
         """ подключиться к хабу
             возвращает True или False
         """
@@ -120,37 +139,35 @@ class DCClient:
             self.send(supports, b'$Key ' + key, '$ValidateNick ' + self.nick)
             tries = 10
             while tries:
-                data = self.recv()
-                if not data.startswith('$'):
-                    self.message_queue.mput(type=MSGCHAT, text=data)
-                elif data == '$GetPass':
-                    if not self.password:
-                        self.message_queue.mput(type=MSGERR, text="need a password")
+                data = self.receive()   # тут используем высокоуровневый метод
+                if not data is None:   # None означает, что команда уже была обработана в receive()
+                    if data == '$GetPass':
+                        if not self.password:
+                            self.message_queue.mput(type=MSGERR, text="need a password")
+                            return False
+                        else:
+                            self.send('$MyPass ' + self.password)
+                            self.message_queue.mput(type=MSGINFO, text="password has been sent")
+                    elif data == '$BadPass':
+                        self.message_queue.mput(type=MSGERR, text="wrong password")
                         return False
+                    elif data.startswith('$Supports '):
+                        pass
+                    elif data.startswith('$Hello '):
+                        self.nick = data[7:]   # иногда хаб может выдавать другое имя
+                        self.message_queue.mput(type=MSGINFO, text="Hello, {0}".format(self.nick))
+                        break
                     else:
-                        self.send('$MyPass ' + self.password)
-                        self.message_queue.mput(type=MSGINFO, text="password has been sent")
-                elif data == '$BadPass':
-                    self.message_queue.mput(type=MSGERR, text="wrong password")
-                    return False
-                elif data.startswith('$HubName '):
-                    self.hubname = data[9:]
-                    self.message_queue.mput(type=MSGINFO, text="HubName: {0}".format(self.hubname))
-                elif data.startswith('$HubTopic '):
-                    self.hubtopic = data[10:]
-                    self.message_queue.mput(type=MSGINFO, text="HubTopic: {0}".format(self.hubtopic))
-                elif data.startswith('$Supports '):
-                    pass
-                elif data.startswith('$Hello '):
-                    self.nick = data[7:]   # иногда хаб может выдавать другое имя
-                    self.message_queue.mput(type=MSGINFO, text="Hello, {0}".format(self.nick))
-                    break
-                else:
-                    tries -= 1
+                        tries -= 1
             else:   # если вышли не по break (т.е. не получили Hello)
                 self.message_queue.mput(type=MSGERR, text="$Hello was not received")
                 return False
-            self.send('$Version 1,0091', '$MyINFO $ALL {0} {1}<slangdc V:{2},M:P,H:0/1/0,S:{3}>$ $100 ${4}${5}$'.format(self.nick, self.desc, version, self.slots, self.email, self.share))
+            if get_nicks:
+                getnicklist = '$GetNickList'
+                self.nicklist = NickList()
+            else:
+                getnicklist = ''
+            self.send('$Version 1,0091', getnicklist, '$MyINFO $ALL {0} {1}<slangdc V:{2},M:P,H:0/1/0,S:{3}>$ $100 ${4}${5}$'.format(self.nick, self.desc, version, self.slots, self.email, self.share))
             return True
         self.message_queue.mput(type=MSGINFO, text="connecting to {0}".format(self.address))
         try:
@@ -240,23 +257,68 @@ class DCClient:
     def pm_send(self, to, message, encoding=None):
         self.send('$To: {0} From: {1} $<{1}> {2}'.format(to, self.nick, message), encoding=encoding)
 
-    def receive(self, encoding=None):
+    def receive(self, raise_exc=True, encoding=None):
+        """ высокоуровневая обёртка над recv()
+
+            обрабатывает сообщения чата, PM, различные
+            команды типа $HubName, выполняя соответствующие
+            действия (кладёт в очереди, обновляет атрибуты)
+            (в этом случае возвращает None)
+            неизвестные команды возвращает как есть
+            (т.е. ведёт себя аналогично более низкоуровневу
+            recv c опциональной возможностью подавить
+            исключение (см. ниже)
+
+            перехватывает DCSocketError, после чего:
+            raise_exc=True - заново возбуждает DCSocketError,
+            чтобы передать его выше (по умолчанию)
+            raise_exc=False - не возбуждает исключение,
+            возвращает False (иными словами, подавляет
+            исключение)
+        """
         try:
             data = self.recv(encoding=encoding)
         except DCSocketError as err:
             self.message_queue.mput(type=MSGERR, text="[socket] {0}".format(err))
-            return False
-        else:
-            if data and not data.startswith('$'):
-                self.message_queue.mput(type=MSGCHAT, text=data)
-            elif data.startswith('$HubTopic '):
-                self.hubtopic = data[10:]
-                self.message_queue.mput(type=MSGINFO, text="HubTopic: {0}".format(self.hubtopic))
+            if raise_exc:
+                raise DCSocketError(str(err))
             else:
-                pm = re.search('^\$To: .+ From: (.+) \$(.+)$', data, flags=re.DOTALL)
-                if pm:
-                    self.message_queue.mput(type=MSGPM, sender=pm.group(1), text=pm.group(2))
-            return True
+                return False
+        else:
+            if data:
+                if not data.startswith('$'):
+                    self.message_queue.mput(type=MSGCHAT, text=data)
+                    return None
+                elif data.startswith('$HubName '):
+                    self.hubname = data[9:]
+                    self.message_queue.mput(type=MSGINFO, text="HubName: {0}".format(self.hubname))
+                elif data.startswith('$HubTopic '):
+                    self.hubtopic = data[10:]
+                    self.message_queue.mput(type=MSGINFO, text="HubTopic: {0}".format(self.hubtopic))
+                    return None
+                elif data.startswith('$NickList '):
+                    nicklist = data[10:].split('$$')
+                    for nick in nicklist:
+                        if nick:
+                            self.nicklist.add(nick)
+                elif data.startswith('$Quit '):
+                    nick = data[6:]
+                    self.nicklist.remove(nick)
+                    self.message_queue.mput(type=MSGINFO, text="quit {0}".format(nick))
+                    return None
+                else:
+                    pm = re.search('^\$To: .+ From: (.+) \$(.+)$', data, flags=re.DOTALL)
+                    if pm:
+                        self.message_queue.mput(type=MSGPM, sender=pm.group(1), text=pm.group(2))
+                        return True
+                    myinfo = re.search('^\$MyINFO \$ALL (.+?) ', data)
+                    if myinfo:
+                        nick = myinfo.group(1)
+                        if not nick in self.nicklist:
+                            self.nicklist.add(nick)
+                            self.message_queue.mput(type=MSGINFO, text="enter {0}".format(nick))
+                        return True
+            return data
 
     @staticmethod
     def lock2key(lock):   # http://wiki.mydc.ru/Lock2Key

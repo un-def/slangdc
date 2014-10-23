@@ -50,21 +50,22 @@ class Typer(threading.Thread):
             message = input()
             if message == '!!quit':
                 self.dc.disconnect()
+            elif message == '!!nickcount':
+                print("users: ", len(dc.nicklist._nicks))
             elif message:
                 dc.chat_send(message)
         print("@close Typer")
 
 
 dc = slangdc.DCClient(**settings)
-
 printer = Printer(dc)
 printer.start()
 
-dc.connect()
+dc.connect(get_nicks=True)
 if dc.connected:
     typer = Typer(dc)
     typer.start()
     while dc.connected:
-        dc.receive()
+        dc.receive(raise_exc=False)
 time.sleep(0.5)
 print("@close main")
