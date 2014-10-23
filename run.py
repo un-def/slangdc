@@ -3,6 +3,7 @@
 import threading
 from datetime import datetime
 import time
+import re
 import slangdc
 
 settings = {
@@ -49,7 +50,10 @@ class Typer(threading.Thread):
         while self.dc.connected:
             message = input()
             if message:
-                if message == '!!quit':
+                pm = re.fullmatch('!!pm (.+?) (.+)', message)
+                if pm:
+                    dc.pm_send(pm.group(1), pm.group(2))
+                elif message == '!!quit':
                     self.dc.disconnect()
                 elif message == '!!showjoins':
                     dc.showjoins = not dc.showjoins
