@@ -48,18 +48,25 @@ class Typer(threading.Thread):
     def run(self):
         while self.dc.connected:
             message = input()
-            if message == '!!quit':
-                self.dc.disconnect()
-            elif message == '!!showjoins':
-                dc.showjoins = not dc.showjoins
-                print("showjoins: ", dc.showjoins)
-            elif message == '!!nickcount':
-                print("users: ", len(dc.nicklist))
-            elif message == '!!nicklist':
-                for nmb, nick in enumerate(sorted(dc.nicklist), 1):
-                    print("{0: 4d} {1}".format(nmb, nick))
-            elif message:
-                dc.chat_send(message)
+            if message:
+                if message == '!!quit':
+                    self.dc.disconnect()
+                elif message == '!!showjoins':
+                    dc.showjoins = not dc.showjoins
+                    print("showjoins: ", dc.showjoins)
+                elif message == '!!nickcount':
+                    print("users: ", len(dc.nicklist))
+                elif message == '!!nicklist':
+                    for nmb, nick in enumerate(sorted(dc.nicklist), 1):
+                        print("{0: 4d} {1}".format(nmb, nick))
+                elif message == '!!oplist':
+                    oplist_str = " ".join(dc.nicklist.ops) if dc.nicklist.ops else "none"
+                    print("ops:", oplist_str)
+                elif message == '!!botlist':
+                    botlist_str = " ".join(dc.nicklist.bots) if dc.nicklist.bots else "none"
+                    print("bots:", botlist_str)
+                else:
+                    dc.chat_send(message)
         print("@close Typer")
 
 

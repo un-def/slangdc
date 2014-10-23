@@ -54,6 +54,19 @@ class MsgQueue(queue.Queue):
 
 
 class NickList(set):
+    """ подкласс set; отличия:
+            - всегда True
+            - не возбуждает исключение при попытке удалить несуществующий
+            элемент
+
+        имеет два дополнительный атрибута - ops и bots - списки (list)
+        операторов/ботов или None, наполняются при обработке команд
+        $OpList/$BotList в DCClient.receive()
+    """
+    def __init__(self):
+        self.ops = None
+        self.bots = None
+        set.__init__(self)
 
     def __bool__(self):
         return True
@@ -121,7 +134,7 @@ class DCClient:
             except OSError as err:
                 raise DCSocketError(err.strerror, close=self)
             data = self.recv(encoding=False)   # $Lock получаем без декодирования (bytes)
-            lock_received = re.search(b'^\$Lock (.+) Pk=.+$', data)
+            lock_received = re.fullmatch(b'\$Lock (.+) Pk=.+', data)
             if not lock_received:
                 self.message_queue.mput(type=MSGERR, text="$Lock is not received")
                 return False
@@ -293,30 +306,33 @@ class DCClient:
                     self.hubtopic = data[10:]
                     self.message_queue.mput(type=MSGINFO, text="HubTopic: {0}".format(self.hubtopic))
                     return None
-                elif self.nicklist:
-                    if data.startswith('$NickList '):
-                        nicklist = data[10:].split('$$')
-                        self.nicklist = NickList(nicklist)
-                        return None
-                    elif data.startswith('$Quit '):
-                        nick = data[6:]
-                        self.nicklist.remove(nick)
-                        if self.showjoins:
-                            self.message_queue.mput(type=MSGINFO, text="quit {0}".format(nick))
-                        return None
+                elif self.nicklist and data.startswith('$Quit '):
+                    nick = data[6:]
+                    self.nicklist.remove(nick)
+                    if self.showjoins:
+                        self.message_queue.mput(type=MSGINFO, text="quit {0}".format(nick))
+                    return None
                 else:
-                    pm = re.search('^\$To: .+ From: (.+) \$(.+)$', data, flags=re.DOTALL)
+                    pm = re.fullmatch('\$To: .+ From: (.+) \$(.+)', data, flags=re.DOTALL)
                     if pm:
                         self.message_queue.mput(type=MSGPM, sender=pm.group(1), text=pm.group(2))
                         return None
                     if self.nicklist:
-                        myinfo = re.search('^\$MyINFO \$ALL (.+?) ', data)
+                        nicklist = re.fullmatch('\$(NickList|OpList|BotList) (.+)\$\$', data)
+                        if nicklist:
+                            list_ = nicklist.group(2).split('$$')
+                            self.nicklist.update(list_)
+                            if nicklist.group(1) == 'OpList':
+                                self.nicklist.ops = list_
+                            elif nicklist.group(1) == 'BotList':
+                                self.nicklist.bots = list_
+                            return None
+                        myinfo = re.match('\$MyINFO \$ALL (.+?) ', data)
                         if myinfo:
                             nick = myinfo.group(1)
-                            if not nick in self.nicklist:
-                                self.nicklist.add(nick)
-                                if self.showjoins:
-                                    self.message_queue.mput(type=MSGINFO, text="enter {0}".format(nick))
+                            self.nicklist.add(nick)
+                            if self.showjoins:
+                                self.message_queue.mput(type=MSGINFO, text="enter {0}".format(nick))
                             return None
             return data
 
