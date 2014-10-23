@@ -53,20 +53,14 @@ class MsgQueue(queue.Queue):
             return item
 
 
-class NickList():
+class NickList(set):
 
-    def __init__(self):
-        self._nicks = set()
-
-    def __contains__(self, nick):
-        return nick in self._nicks
-
-    def add(self, nick):
-        self._nicks.add(nick)
+    def __bool__(self):
+        return True
 
     def remove(self, nick):
         try:
-            self._nicks.remove(nick)
+            set.remove(self, nick)
         except KeyError:
             pass
 
@@ -168,6 +162,7 @@ class DCClient:
                 self.nicklist = NickList()
             else:
                 getnicklist = ''
+                self.nicklist = None
             self.send('$Version 1,0091', getnicklist, '$MyINFO $ALL {0} {1}<slangdc V:{2},M:P,H:0/1/0,S:{3}>$ $100 ${4}${5}$'.format(self.nick, self.desc, version, self.slots, self.email, self.share))
             return True
         self.message_queue.mput(type=MSGINFO, text="connecting to {0}".format(self.address))
@@ -298,31 +293,31 @@ class DCClient:
                     self.hubtopic = data[10:]
                     self.message_queue.mput(type=MSGINFO, text="HubTopic: {0}".format(self.hubtopic))
                     return None
-                elif data.startswith('$NickList '):
-                    nicklist = data[10:].split('$$')
-                    for nick in nicklist:
-                        if nick:
-                            self.nicklist.add(nick)
-                    return None
-                elif data.startswith('$Quit '):
-                    nick = data[6:]
-                    self.nicklist.remove(nick)
-                    if self.showjoins:
-                        self.message_queue.mput(type=MSGINFO, text="quit {0}".format(nick))
-                    return None
+                elif self.nicklist:
+                    if data.startswith('$NickList '):
+                        nicklist = data[10:].split('$$')
+                        self.nicklist = NickList(nicklist)
+                        return None
+                    elif data.startswith('$Quit '):
+                        nick = data[6:]
+                        self.nicklist.remove(nick)
+                        if self.showjoins:
+                            self.message_queue.mput(type=MSGINFO, text="quit {0}".format(nick))
+                        return None
                 else:
                     pm = re.search('^\$To: .+ From: (.+) \$(.+)$', data, flags=re.DOTALL)
                     if pm:
                         self.message_queue.mput(type=MSGPM, sender=pm.group(1), text=pm.group(2))
                         return None
-                    myinfo = re.search('^\$MyINFO \$ALL (.+?) ', data)
-                    if myinfo:
-                        nick = myinfo.group(1)
-                        if not nick in self.nicklist:
-                            self.nicklist.add(nick)
-                            if self.showjoins:
-                                self.message_queue.mput(type=MSGINFO, text="enter {0}".format(nick))
-                        return None
+                    if self.nicklist:
+                        myinfo = re.search('^\$MyINFO \$ALL (.+?) ', data)
+                        if myinfo:
+                            nick = myinfo.group(1)
+                            if not nick in self.nicklist:
+                                self.nicklist.add(nick)
+                                if self.showjoins:
+                                    self.message_queue.mput(type=MSGINFO, text="enter {0}".format(nick))
+                            return None
             return data
 
     @staticmethod

@@ -54,7 +54,10 @@ class Typer(threading.Thread):
                 dc.showjoins = not dc.showjoins
                 print("showjoins: ", dc.showjoins)
             elif message == '!!nickcount':
-                print("users: ", len(dc.nicklist._nicks))
+                print("users: ", len(dc.nicklist))
+            elif message == '!!nicklist':
+                for nmb, nick in enumerate(sorted(dc.nicklist), 1):
+                    print("{0: 4d} {1}".format(nmb, nick))
             elif message:
                 dc.chat_send(message)
         print("@close Typer")
