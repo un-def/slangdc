@@ -293,6 +293,7 @@ class DCClient:
                 elif data.startswith('$HubName '):
                     self.hubname = data[9:]
                     self.message_queue.mput(type=MSGINFO, text="HubName: {0}".format(self.hubname))
+                    return None
                 elif data.startswith('$HubTopic '):
                     self.hubtopic = data[10:]
                     self.message_queue.mput(type=MSGINFO, text="HubTopic: {0}".format(self.hubtopic))
@@ -302,6 +303,7 @@ class DCClient:
                     for nick in nicklist:
                         if nick:
                             self.nicklist.add(nick)
+                    return None
                 elif data.startswith('$Quit '):
                     nick = data[6:]
                     self.nicklist.remove(nick)
@@ -312,7 +314,7 @@ class DCClient:
                     pm = re.search('^\$To: .+ From: (.+) \$(.+)$', data, flags=re.DOTALL)
                     if pm:
                         self.message_queue.mput(type=MSGPM, sender=pm.group(1), text=pm.group(2))
-                        return True
+                        return None
                     myinfo = re.search('^\$MyINFO \$ALL (.+?) ', data)
                     if myinfo:
                         nick = myinfo.group(1)
@@ -320,7 +322,7 @@ class DCClient:
                             self.nicklist.add(nick)
                             if self.showjoins:
                                 self.message_queue.mput(type=MSGINFO, text="enter {0}".format(nick))
-                        return True
+                        return None
             return data
 
     @staticmethod
