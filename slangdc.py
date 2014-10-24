@@ -46,7 +46,17 @@ class MsgQueue(queue.Queue):
             MSGINFO, MSGERR:
                 mput(type=MSGINFO|MSGERR, text='…')
             MSGPM:
-                mput(type=MSGPM, nick='…', text='…')
+                mput(type=MSGPM, sender='…', nick='…', text='…', me=False|True)
+                sender и nick теоретически могут быть разными:
+                '$To: … From: sender $<nick> [/me] text'
+                если текст сообщения не соответствует шаблону
+                ('<nick> [/me] text' или '*[*] nick text') - возможно, хаб
+                может отправлять такие сообщения - то DCClient.receive()
+                передаёт такие аргументы:
+                    sender - sender из команды ('From: …')
+                    nick   - None
+                    text   - весь текст сообщения (часть команды после второго $)
+                    me     - False
         """
         item['time'] = time.time()
         self.put(item, block=False)
@@ -292,6 +302,29 @@ class DCClient:
             возвращает False (иными словами, подавляет
             исключение)
         """
+
+        def parse_msg(msg_string):
+            """ пытается извлечь из строки ник, текст сообщения
+                и флаг '/me' ("третьего лица") — понимает разные
+                конструкции (см. ниже). Флаг me - True или False
+                возвращает кортеж (nick, text, me) или False
+            """
+            # '<nick> text' или '<nick> /me text'
+            msg = re.fullmatch('<([^\r\n]+?)> (.*)', msg_string, re.DOTALL)
+            if msg:
+                nick, text = msg.group(1, 2)
+                if text.startswith('/me '):
+                    text = text[4:]
+                    me = True
+                else:
+                    me = False
+                return (nick, text, me)
+            # '*nick text' или '* nick text' c произвольным количеством *
+            msg = re.fullmatch('\*+ ?([^\r\n]+?) (.*)', msg_string, re.DOTALL)
+            if msg:
+                return (msg.group(1), msg.group(2), True)
+            return False
+
         try:
             data = self.recv(encoding=encoding)
         except DCSocketError as err:
@@ -303,24 +336,12 @@ class DCClient:
         else:
             if data:
                 if not data.startswith('$'):
-                    # '<nick> text' или '<nick> /me text'
-                    chat_msg = re.fullmatch('<(.+?)> (.*)', data)
+                    chat_msg = parse_msg(data)
                     if chat_msg:
-                        nick, text = chat_msg.group(1, 2)
-                        if text.startswith('/me '):
-                            text = text[4:]
-                            me = True
-                        else:
-                            me = False
-                        self.message_queue.mput(type=MSGCHAT, nick=nick, text=text, me=me)
-                        return None
-                    # '*nick text' или '* nick text' c произвольным количеством *
-                    chat_msg = re.fullmatch('\*+ ?(.+?) (.*)', data)
-                    if chat_msg:
-                        self.message_queue.mput(type=MSGCHAT, nick=chat_msg.group(1), text=chat_msg.group(2), me=True)
-                        return None
-                    # любое другое сообщение, не начинающееся с $
-                    self.message_queue.mput(type=MSGINFO, text=data)
+                        self.message_queue.mput(type=MSGCHAT, nick=chat_msg[0], text=chat_msg[1], me=chat_msg[2])
+                    else:
+                        # любое другое сообщение, не начинающееся с $
+                        self.message_queue.mput(type=MSGINFO, text=data)
                     return None
                 elif data.startswith('$HubName '):
                     self.hubname = data[9:]
@@ -337,9 +358,16 @@ class DCClient:
                         self.message_queue.mput(type=MSGINFO, text="quit {0}".format(nick))
                     return None
                 else:
-                    pm = re.fullmatch('\$To: .+ From: (.+) \$(.+)', data, flags=re.DOTALL)
+                    pm = re.fullmatch('\$To: .+? From: (.+?) \$(.+)', data, flags=re.DOTALL)
                     if pm:
-                        self.message_queue.mput(type=MSGPM, nick=pm.group(1), text=pm.group(2))
+                        sender = pm.group(1)
+                        # из PM тоже пытаемся извлечь ник, текст сообщения и me
+                        pm_msg = parse_msg(pm.group(2))
+                        if pm_msg:
+                            nick, text, me = pm_msg
+                        else:
+                            nick, text, me = None, pm.group(2), False
+                        self.message_queue.mput(type=MSGPM, sender=sender, nick=nick, text=text, me=me)
                         return None
                     if self.nicklist:
                         nicklist = re.fullmatch('\$(NickList|OpList|BotList) (.+)\$\$', data)

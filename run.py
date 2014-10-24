@@ -33,7 +33,12 @@ class Printer(threading.Thread):
                     else:
                         pref = "* " + message['nick']
                 elif message['type'] == slangdc.MSGPM:
-                    pref = "PM from " + message['nick'] + ":"
+                    pref = "PM from " + message['sender'] + ":"
+                    if message['nick']:
+                        if not message['me']:
+                            pref = pref + " <" + message['nick'] + ">"
+                        else:
+                            pref = pref + " * " + message['nick']
                 elif message['type'] == slangdc.MSGERR:
                     pref = "xxx"
                 else:
