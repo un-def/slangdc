@@ -34,12 +34,19 @@ class DCSocketError(DCError):
 
 
 class MsgQueue(queue.Queue):
-
+    """ класс для хранения всех отображаемых сообщений
+        в виде очереди (подкласс queue.Queue)
+        сообщения хранятся в виде словарей
+        структура - как указано в методе mput()
+        + ключ 'time' (Unix time)
+    """
     def mput(self, **item):
-        """ MSGINFO, MSGERR, MSGCHAT:
-                mput(type, text)
+        """ MSGCHAT:
+                mput(type=MSGCHAT, nick='…', text='…', me=False|True)
+            MSGINFO, MSGERR:
+                mput(type=MSGINFO|MSGERR, text='…')
             MSGPM:
-                mput(type, sender, text)
+                mput(type=MSGPM, nick='…', text='…')
         """
         item['time'] = time.time()
         self.put(item, block=False)
@@ -296,7 +303,24 @@ class DCClient:
         else:
             if data:
                 if not data.startswith('$'):
-                    self.message_queue.mput(type=MSGCHAT, text=data)
+                    # '<nick> text' или '<nick> /me text'
+                    chat_msg = re.fullmatch('<(.+?)> (.*)', data)
+                    if chat_msg:
+                        nick, text = chat_msg.group(1, 2)
+                        if text.startswith('/me '):
+                            text = text[4:]
+                            me = True
+                        else:
+                            me = False
+                        self.message_queue.mput(type=MSGCHAT, nick=nick, text=text, me=me)
+                        return None
+                    # '*nick text' или '* nick text' c произвольным количеством *
+                    chat_msg = re.fullmatch('\*+ ?(.+?) (.*)', data)
+                    if chat_msg:
+                        self.message_queue.mput(type=MSGCHAT, nick=chat_msg.group(1), text=chat_msg.group(2), me=True)
+                        return None
+                    # любое другое сообщение, не начинающееся с $
+                    self.message_queue.mput(type=MSGINFO, text=data)
                     return None
                 elif data.startswith('$HubName '):
                     self.hubname = data[9:]
@@ -315,7 +339,7 @@ class DCClient:
                 else:
                     pm = re.fullmatch('\$To: .+ From: (.+) \$(.+)', data, flags=re.DOTALL)
                     if pm:
-                        self.message_queue.mput(type=MSGPM, sender=pm.group(1), text=pm.group(2))
+                        self.message_queue.mput(type=MSGPM, nick=pm.group(1), text=pm.group(2))
                         return None
                     if self.nicklist:
                         nicklist = re.fullmatch('\$(NickList|OpList|BotList) (.+)\$\$', data)

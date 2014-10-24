@@ -24,18 +24,22 @@ class Printer(threading.Thread):
         threading.Thread.__init__(self)
 
     def run(self):
-        prefixes = {
-            slangdc.MSGINFO: "***",
-            slangdc.MSGERR: "xxx",
-            slangdc.MSGCHAT: "",
-            slangdc.MSGPM: "## PM ##"
-        }
         while True:
             message = self.dc.message_queue.mget()
             if message:
-                sep = prefixes[message['type']]
+                if message['type'] == slangdc.MSGCHAT:
+                    if not message['me']:
+                        pref = "<" + message['nick'] + ">"
+                    else:
+                        pref = "* " + message['nick']
+                elif message['type'] == slangdc.MSGPM:
+                    pref = "PM from " + message['nick'] + ":"
+                elif message['type'] == slangdc.MSGERR:
+                    pref = "xxx"
+                else:
+                    pref = "***"
                 timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
-                print("{0} {1} {2}".format(timestamp, sep, message['text']))
+                print("{0} {1} {2}".format(timestamp, pref, message['text']))
             time.sleep(0.01)
         print("@close Printer")
 
