@@ -117,6 +117,12 @@ class DCClient:
                 http://docs.python.org/3.4/library/socket.html#socket-timeouts
         """
         self.address = address
+        host, _, port = address.partition(':')
+        try:
+            port = int(port)
+        except ValueError:
+            port = 411
+        self._address = (host, port)
         self.nick = nick if nick else 'sldc' + ''.join(random.choice(string.ascii_uppercase) for n in range(6))
         self.password = password
         self.desc = desc
@@ -139,13 +145,8 @@ class DCClient:
         def _connect(self):
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.settimeout(self.timeout)
-            host, _, port = self.address.partition(':')
             try:
-                port = int(port)
-            except ValueError:
-                port = 411
-            try:
-                self.socket.connect((host, port))
+                self.socket.connect(self._address)
             except socket.timeout:
                 raise DCSocketError("connection timeout ({0} s)".format(self.timeout), close=self)
             except OSError as err:
