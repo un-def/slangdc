@@ -177,6 +177,9 @@ class DCClient:
                     elif data == '$BadPass':
                         self.message_queue.mput(type=MSGERR, text="wrong password")
                         return False
+                    elif data.startswith('$ValidateDenide '):   # Verlihub шлёт эту команду после $Hello (!)
+                        self.message_queue.mput(type=MSGERR, text="hub rejected your nick")
+                        return False
                     elif data.startswith('$Supports '):
                         pass
                     elif data.startswith('$Hello '):
