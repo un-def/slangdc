@@ -435,9 +435,10 @@ class DCClient:
                         myinfo = re.match('\$MyINFO \$ALL (.+?) ', data)
                         if myinfo:
                             nick = myinfo.group(1)
-                            self.nicklist.add(nick)
-                            if self.showjoins:
-                                self.message_queue.mput(type=MSGINFO, text="enter {0}".format(nick))
+                            if not nick in self.nicklist:
+                                self.nicklist.add(nick)
+                                if self.showjoins:
+                                    self.message_queue.mput(type=MSGINFO, text="enter {0}".format(nick))
                             return None
             return data
 
