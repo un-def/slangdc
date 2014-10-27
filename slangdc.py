@@ -14,6 +14,12 @@ MSGERR = 1
 MSGCHAT = 2
 MSGPM = 3
 
+def dcescape(text):
+    return text.replace('$', '&#36;').replace('|', '&#124;')
+
+def dcunescape(text):
+    return text.replace('&#36;', '$').replace('&#124;', '|')
+
 class DCError(Exception):
 
     def __init__(self, error, close=None):
@@ -292,9 +298,11 @@ class DCClient:
             raise DCSocketError(err.strerror, close=self)
 
     def chat_send(self, message, encoding=None):
+        message = dcescape(message)
         self.send('<{0}> {1}'.format(self.nick, message), encoding=encoding)
 
     def pm_send(self, to, message, encoding=None):
+        message = dcescape(message)
         self.send('$To: {0} From: {1} $<{1}> {2}'.format(to, self.nick, message), encoding=encoding)
 
     def receive(self, raise_exc=True, encoding=None):
@@ -326,17 +334,18 @@ class DCClient:
             # '<nick> text' или '<nick> /me text'
             msg = re.fullmatch('<([^\r\n]+?)> (.*)', msg_string, re.DOTALL)
             if msg:
-                nick, text = msg.group(1, 2)
+                text = dcunescape(msg.group(2))
                 if text.startswith('/me '):
                     text = text[4:]
                     me = True
                 else:
                     me = False
-                return (nick, text, me)
+                return (msg.group(1), text, me)
             # '*nick text' или '* nick text' c произвольным количеством *
             msg = re.fullmatch('\*+ ?([^\r\n]+?) (.*)', msg_string, re.DOTALL)
             if msg:
-                return (msg.group(1), msg.group(2), True)
+                text = dcunescape(msg.group(2))
+                return (msg.group(1), text, True)
             return False
 
         try:
