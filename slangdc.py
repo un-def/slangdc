@@ -77,38 +77,64 @@ class MsgQueue(queue.Queue):
 
 
 class NickList(set):
-    """ подкласс set; отличия:
-            - всегда True
-            - не возбуждает исключение при попытке удалить несуществующий
-            элемент
+    """ подкласс set; всегда True, даже если пуст
 
         методами add и remove можно добавлять как один ник, так и
         несколько - в виде списка/кортежа/множества
-        попытка добавить существующий/удалить несуществующий ник игнорируется
 
-        имеет два дополнительный атрибута - ops и bots - списки (list)
-        операторов/ботов или None, наполняются при обработке команд
+        имеет два дополнительный атрибута - ops и bots - подмножества
+        операторов/ботов, наполняются при обработке команд
         $OpList/$BotList в DCClient.receive()
     """
     def __init__(self):
-        self.ops = None
-        self.bots = None
+        self.ops = set()
+        self.bots = set()
         set.__init__(self)
 
     def __bool__(self):
         return True
 
     def add(self, nicks):
+        """ добавляет пользователя/нескольких пользователей
+            в основной список
+        """
         if isinstance(nicks, (list, tuple, set, frozenset)):
             self.update(nicks)
         else:
             set.add(self, nicks)
 
     def remove(self, nicks):
+        """ удаляет пользователя/нескольких пользователей
+            из всех трёх списков (основной, боты, операторы)
+            попытка добавить существующий/удалить
+            несуществующий ник игнорируется
+        """
         if isinstance(nicks, (list, tuple, set, frozenset)):
             self.difference_update(nicks)
+            self.ops.difference_update(nicks)
+            self.bots.difference_update(nicks)
         else:
             self.discard(nicks)
+            self.ops.discard(nicks)
+            self.bots.discard(nicks)
+
+    def _set(self, nicks, list_type):
+        self.add(nicks)
+        if not isinstance(nicks, (list, tuple, set, frozenset)):
+            nicks = (nicks,)   # если не коллекция, сделаем коллекцией
+        setattr(self, list_type, set(nicks))
+
+    def set_ops(self, nicks):
+        """ (пере)создаёт список операторов; предыдущие элементы
+            удаляются (создаётся новый set); автоматически добавляет
+            операторов и в основной список
+        """
+        self._set(nicks, list_type='ops')
+
+    def set_bots(self, nicks):
+        """ аналогично set_ops, но для ботов
+        """
+        self._set(nicks, list_type='bots')
 
 
 class DCClient:
@@ -396,11 +422,13 @@ class DCClient:
                         nicklist = re.fullmatch('\$(NickList|OpList|BotList) (.+)\$\$', data)
                         if nicklist:
                             list_ = nicklist.group(2).split('$$')
-                            self.nicklist.update(list_)
-                            if nicklist.group(1) == 'OpList':
-                                self.nicklist.ops = list_
-                            elif nicklist.group(1) == 'BotList':
-                                self.nicklist.bots = list_
+                            list_type = nicklist.group(1)
+                            if list_type == 'OpList':
+                                self.nicklist.set_ops(list_)
+                            elif list_type == 'BotList':
+                                self.nicklist.set_bots(list_)
+                            else:
+                                self.nicklist.add(list_)
                             return None
                         myinfo = re.match('\$MyINFO \$ALL (.+?) ', data)
                         if myinfo:
