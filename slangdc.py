@@ -288,7 +288,9 @@ class DCClient:
                 if chunk.endswith(b'|'):
                     break
             if self.debug: print("<--", recv)
-            self.recv_list = recv.rstrip(b'|').split(b'|')
+            self.recv_list = recv.split(b'|')
+            if not self.recv_list[-1]:   # обычно команды заканчиваются на |
+                self.recv_list.pop()     # поэтому удаляем последний элемент
         data = self.recv_list.pop(0)
         if encoding is None: encoding = self.encoding   # кодировка по умолчанию
         if not encoding:   # если encoding=False
