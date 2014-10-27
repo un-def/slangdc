@@ -76,6 +76,10 @@ class NickList(set):
             - не возбуждает исключение при попытке удалить несуществующий
             элемент
 
+        методами add и remove можно добавлять как один ник, так и
+        несколько - в виде списка/кортежа/множества
+        попытка добавить существующий/удалить несуществующий ник игнорируется
+
         имеет два дополнительный атрибута - ops и bots - списки (list)
         операторов/ботов или None, наполняются при обработке команд
         $OpList/$BotList в DCClient.receive()
@@ -88,11 +92,17 @@ class NickList(set):
     def __bool__(self):
         return True
 
-    def remove(self, nick):
-        try:
-            set.remove(self, nick)
-        except KeyError:
-            pass
+    def add(self, nicks):
+        if isinstance(nicks, (list, tuple, set, frozenset)):
+            self.update(nicks)
+        else:
+            set.add(self, nicks)
+
+    def remove(self, nicks):
+        if isinstance(nicks, (list, tuple, set, frozenset)):
+            self.difference_update(nicks)
+        else:
+            self.discard(nicks)
 
 
 class DCClient:
