@@ -94,20 +94,27 @@ class NickList(set):
     def __bool__(self):
         return True
 
-    def add(self, nicks):
+    def add(self, nicks, list_type=None, clear_ops_bots=False):
         """ добавляет пользователя/нескольких пользователей
-            в основной список
+            в основной список и, если указан list_type='ops|bots',
+            в список опов/ботов соответственно
+            eсли clear_ops_bots=True (имеет смысл только при
+            заданном list_type), то перед добавлением опов/ботов
+            соответствующий список очищается; на основной список
+            этот параметр не влияет)
         """
-        if isinstance(nicks, (list, tuple, set, frozenset)):
-            self.update(nicks)
-        else:
-            set.add(self, nicks)
+        if not isinstance(nicks, (list, tuple, set, frozenset)):
+            nicks = (nicks,)   # если не коллекция, сделаем коллекцией
+        self.update(nicks)
+        if list_type:
+            ops_bots = getattr(self, list_type)   # ссылка на self.ops или self.bots
+            if clear_ops_bots: ops_bots.clear()
+            ops_bots.update(nicks)
 
     def remove(self, nicks):
         """ удаляет пользователя/нескольких пользователей
             из всех трёх списков (основной, боты, операторы)
-            попытка добавить существующий/удалить
-            несуществующий ник игнорируется
+            попытка удалить несуществующий ник игнорируется
         """
         if isinstance(nicks, (list, tuple, set, frozenset)):
             self.difference_update(nicks)
@@ -117,24 +124,6 @@ class NickList(set):
             self.discard(nicks)
             self.ops.discard(nicks)
             self.bots.discard(nicks)
-
-    def _set(self, nicks, list_type):
-        self.add(nicks)
-        if not isinstance(nicks, (list, tuple, set, frozenset)):
-            nicks = (nicks,)   # если не коллекция, сделаем коллекцией
-        setattr(self, list_type, set(nicks))
-
-    def set_ops(self, nicks):
-        """ (пере)создаёт список операторов; предыдущие элементы
-            удаляются (создаётся новый set); автоматически добавляет
-            операторов и в основной список
-        """
-        self._set(nicks, list_type='ops')
-
-    def set_bots(self, nicks):
-        """ аналогично set_ops, но для ботов
-        """
-        self._set(nicks, list_type='bots')
 
 
 class DCClient:
@@ -421,16 +410,30 @@ class DCClient:
                         self.message_queue.mput(type=MSGPM, sender=sender, nick=nick, text=text, me=me)
                         return None
                     if self.nicklist:
-                        nicklist = re.fullmatch('\$(NickList|OpList|BotList) (.+)\$\$', data)
+                        nicklist = re.fullmatch('\$(NickList|OpList|BotList) (.+)', data)
                         if nicklist:
-                            list_ = nicklist.group(2).split('$$')
-                            list_type = nicklist.group(1)
-                            if list_type == 'OpList':
-                                self.nicklist.set_ops(list_)
-                            elif list_type == 'BotList':
-                                self.nicklist.set_bots(list_)
-                            else:
+                            list_ = nicklist.group(2)
+                            # $NickList nick1$$nick2$$nick3$$
+                            # считаем, что эта команда может отправляться только один раз
+                            # и ДО всех $MyINFO, поэтому она по сути заполняет ещё пустой
+                            # список никами
+                            if nicklist.group(1) == 'NickList':
+                                list_ = list_.split('$$')
+                                list_.pop()
                                 self.nicklist.add(list_)
+                            else:
+                                list_type = 'ops' if nicklist.group(1) == 'OpList' else 'bots'
+                                # $OpList op1$$op2$$op3$$ или $OpList op4
+                                # в первом случае переинициализируем список опов/ботов
+                                # (т.е. создаём новый)
+                                # во втором - обновляем (добавляем элемент)
+                                if '$' in list_:
+                                    list_ = list_.split('$$')
+                                    list_.pop()
+                                    clear_ops_bots = True
+                                else:
+                                    clear_ops_bots = False
+                                self.nicklist.add(list_, list_type, clear_ops_bots)
                             return None
                         myinfo = re.match('\$MyINFO \$ALL (.+?) ', data)
                         if myinfo:
