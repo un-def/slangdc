@@ -100,21 +100,19 @@ class NickList(set):
     def __bool__(self):
         return True
 
-    def add(self, nicks, list_type=None, clear_ops_bots=False):
+    def add(self, nicks, list_type=None):
         """ добавляет пользователя/нескольких пользователей
-            в основной список и, если указан list_type='ops|bots',
+            в основной список и, если указан list_type='OpList|BotList',
             в список опов/ботов соответственно
-            eсли clear_ops_bots=True (имеет смысл только при
-            заданном list_type), то перед добавлением опов/ботов
-            соответствующий список очищается; на основной список
-            этот параметр не влияет)
+            по умолчанию list_type=None (эквивалентно 'NickList')
         """
+        if list_type == 'NickList': list_type = None
         if not isinstance(nicks, (list, tuple, set, frozenset)):
             nicks = (nicks,)   # если не коллекция, сделаем коллекцией
         self.update(nicks)
         if list_type:
-            ops_bots = getattr(self, list_type)   # ссылка на self.ops или self.bots
-            if clear_ops_bots: ops_bots.clear()
+            # ссылка на self.ops или self.bots
+            ops_bots = self.ops if list_type == 'OpList' else self.bots
             ops_bots.update(nicks)
 
     def remove(self, nicks):
@@ -423,28 +421,13 @@ class DCClient:
                     if self.nicklist:
                         nicklist = re.fullmatch('\$(NickList|OpList|BotList) (.+)', data)
                         if nicklist:
+                            list_type = nicklist.group(1)
                             list_ = nicklist.group(2)
-                            # $NickList nick1$$nick2$$nick3$$
-                            # считаем, что эта команда может отправляться только один раз
-                            # и ДО всех $MyINFO, поэтому она по сути заполняет ещё пустой
-                            # список никами
-                            if nicklist.group(1) == 'NickList':
+                            # $OpList op1$$op2$$op3$$ или $OpList op4
+                            if '$' in list_:
                                 list_ = list_.split('$$')
                                 list_.pop()
-                                self.nicklist.add(list_)
-                            else:
-                                list_type = 'ops' if nicklist.group(1) == 'OpList' else 'bots'
-                                # $OpList op1$$op2$$op3$$ или $OpList op4
-                                # в первом случае переинициализируем список опов/ботов
-                                # (т.е. создаём новый)
-                                # во втором - обновляем (добавляем элемент)
-                                if '$' in list_:
-                                    list_ = list_.split('$$')
-                                    list_.pop()
-                                    clear_ops_bots = True
-                                else:
-                                    clear_ops_bots = False
-                                self.nicklist.add(list_, list_type, clear_ops_bots)
+                            self.nicklist.add(list_, list_type)
                             return None
                         myinfo = re.match('\$MyINFO \$ALL (.+?) ', data)
                         if myinfo:
