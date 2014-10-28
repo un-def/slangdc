@@ -46,12 +46,19 @@ class PrintThread(threading.Thread):
                     else:
                         pref = "* " + message['nick']
                 elif message['type'] == slangdc.MSGPM:
-                    pref = "PM from " + message['sender'] + ":"
-                    if message['nick']:
+                    if 'sender' in message:   # если это входящее сообщение
+                        pref = "PM from " + message['sender'] + ":"
+                        if message['nick']:
+                            if not message['me']:
+                                pref = pref + " <" + message['nick'] + ">"
+                            else:
+                                pref = pref + " * " + message['nick']
+                    else:   # если исходящее сообщение
+                        pref = "PM to " + message['recipient'] + ":"
                         if not message['me']:
-                            pref = pref + " <" + message['nick'] + ">"
+                            pref = pref + " <" + dc.nick + ">"
                         else:
-                            pref = pref + " * " + message['nick']
+                            pref = pref + " * " + dc.nick
                 elif message['type'] == slangdc.MSGERR:
                     pref = "xxx"
                 else:

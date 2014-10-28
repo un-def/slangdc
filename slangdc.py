@@ -49,9 +49,12 @@ class MsgQueue(queue.Queue):
     def mput(self, **item):
         """ MSGCHAT:
                 mput(type=MSGCHAT, nick='…', text='…', me=False|True)
+
             MSGINFO, MSGERR:
                 mput(type=MSGINFO|MSGERR, text='…')
+
             MSGPM:
+                входящее сообщение:
                 mput(type=MSGPM, sender='…', nick='…', text='…', me=False|True)
                 sender и nick теоретически могут быть разными:
                 '$To: … From: sender $<nick> [/me] text'
@@ -63,6 +66,9 @@ class MsgQueue(queue.Queue):
                     nick   - None
                     text   - весь текст сообщения (часть команды после второго $)
                     me     - False
+
+                исходящее сообщение:
+                mput(type=MSGPM, recipient='…', text='…', me=False|True)
         """
         item['time'] = time.time()
         self.put(item, block=False)
@@ -318,9 +324,14 @@ class DCClient:
         message = dcescape(message)
         self.send('<{0}> {1}'.format(self.nick, message), encoding=encoding)
 
-    def pm_send(self, to, message, encoding=None):
-        message = dcescape(message)
-        self.send('$To: {0} From: {1} $<{1}> {2}'.format(to, self.nick, message), encoding=encoding)
+    def pm_send(self, recipient, message, encoding=None):
+        self.send('$To: {0} From: {1} $<{1}> {2}'.format(recipient, self.nick, dcescape(message)), encoding=encoding)
+        if message.startswith('/me '):
+            message = message[4:]
+            me = True
+        else:
+            me = False
+        self.message_queue.mput(type=MSGPM, recipient=recipient, text=message, me=me)
 
     def receive(self, raise_exc=True, encoding=None):
         """ высокоуровневая обёртка над recv()
