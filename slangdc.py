@@ -136,7 +136,7 @@ class DCClient:
 
     debug = False
     showjoins = False
-    _real_timeout = 0.1   # "настоящий" таймаут (для socket.settimeout()) — sort of неблокирующий сокет
+    _real_timeout = 0.5   # "настоящий" таймаут (для socket.settimeout()) — sort of неблокирующий сокет
 
     def __init__(self, address, nick=None, password=None, desc="", email="", share=0, slots=1, encoding='utf-8', timeout=600):
         """ address='dchub.com[:port]'
@@ -248,13 +248,14 @@ class DCClient:
                 self.socket_close()
             else:
                 self.message_queue.mput(type=MSGINFO, text="connected")
+                self.socket.settimeout(self._real_timeout)   # ставим короткий таймаут для имитации неблокирующего режима
         return self.connected
 
     def socket_close(self):
         with self.socket_lock:
             self.socket.close()
             self.socket = None
-        
+
     def disconnect(self):
         self.connected = False
         self.socket_close()
@@ -276,7 +277,6 @@ class DCClient:
                 None (по умолчанию) - кодировка по умолчанию
         """
         def _recv(self):
-            self.socket.settimeout(self._real_timeout)   ### ставим короткий таймаут для имитации неблокирующего режима
             attempts = self.timeout_attempts
             while attempts:
                 if self.socket:   ### тут должен быть лок
@@ -290,7 +290,6 @@ class DCClient:
                         if not data:   # len(data) == 0 --> удаленный сокет закрыт
                             raise DCSocketError("closed", close=self)
                         else:
-                            self.socket.settimeout(self.timeout)   ### восстанавливаем нормальный таймаут (временная мера)
                             return data
                 else:
                     return False
@@ -340,24 +339,26 @@ class DCClient:
                 data.extend(command + b'|')
         if self.debug: print("-->", data)
         try:
-            self.socket.send(data)
+            return self.socket.send(data)
         except OSError as err:
             raise DCSocketError(err.strerror, close=self)
+        except AttributeError:   # workaround - если в другом треде "убили" сокет socket_close()
+            return False
 
     def chat_send(self, message, encoding=None):
         if not self.connected: return False
-        message = dcescape(message)
-        self.send('<{0}> {1}'.format(self.nick, message), encoding=encoding)
+        return self.send('<{0}> {1}'.format(self.nick, dcescape(message)), encoding=encoding)
 
     def pm_send(self, recipient, message, encoding=None):
         if not self.connected: return False
-        self.send('$To: {0} From: {1} $<{1}> {2}'.format(recipient, self.nick, dcescape(message)), encoding=encoding)
+        sent = self.send('$To: {0} From: {1} $<{1}> {2}'.format(recipient, self.nick, dcescape(message)), encoding=encoding)
         if message.startswith('/me '):
             message = message[4:]
             me = True
         else:
             me = False
         self.message_queue.mput(type=MSGPM, recipient=recipient, text=message, me=me)
+        return sent
 
     def receive(self, raise_exc=True, err_message=True, encoding=None):
         """ высокоуровневая обёртка над recv()
