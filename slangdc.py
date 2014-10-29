@@ -6,6 +6,7 @@ import random
 import string
 import re
 import time
+from threading import Lock
 
 version = '0.1.0'
 
@@ -30,9 +31,10 @@ class DCError(Exception):
         self.error = error
         if close:
             close.connected = False
-            close.socket.close()
-    def __str__(self):
-        return self.error
+            close.socket_close()
+
+        def __str__(self):
+            return self.error
 
 
 class DCSocketError(DCError):
@@ -135,6 +137,7 @@ class DCClient:
     timeout = None
     debug = False
     showjoins = False
+    _real_timeout = 0.1   # "настоящий" таймаут (для socket.settimeout()) — sort of неблокирующий сокет
 
     def __init__(self, address, nick=None, password=None, desc="", email="", share=0, slots=1, encoding='utf-8', timeout=None):
         """ address='dchub.com[:port]'
@@ -167,6 +170,8 @@ class DCClient:
         self.encoding = encoding
         if timeout: self.timeout = timeout
         self.connected = False
+        self.socket = None   # None или socket object (False или True в логическом контексте соответственно)
+        self.socket_lock = Lock()
         self.recv_list = []
         self.message_queue = MsgQueue()
         self.nicklist = None
@@ -178,8 +183,6 @@ class DCClient:
             возвращает True или False
         """
         def _connect(self):
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(self.timeout)
             try:
                 self.socket.connect(self._address)
             except socket.timeout:
@@ -234,6 +237,8 @@ class DCClient:
                 self.nicklist = None
             self.send('$Version 1,0091', getnicklist, '$MyINFO $ALL {0} {1}<slangdc V:{2},M:P,H:0/1/0,S:{3}>$ $100 ${4}${5}$'.format(self.nick, self.desc, version, self.slots, self.email, self.share))
             return True
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.settimeout(self.timeout)   # коннектимся в блокирующем режиме с заданным таймаутом
         self.message_queue.mput(type=MSGINFO, text="connecting to {0}".format(self.address))
         try:
             self.connected = _connect(self)
@@ -246,9 +251,14 @@ class DCClient:
                 self.message_queue.mput(type=MSGINFO, text="connected")
         return self.connected
 
+    def socket_close(self):
+        with self.socket_lock:
+            self.socket.close()
+            self.socket = None
+        
     def disconnect(self):
         self.connected = False
-        self.socket.close()
+        self.socket_close()
         self.message_queue.mput(type=MSGINFO, text="disconnected")
 
     def recv(self, encoding=None):
@@ -266,22 +276,38 @@ class DCClient:
                 'enc' - декодировать как 'enc'
                 None (по умолчанию) - кодировка по умолчанию
         """
+        def _recv(self):
+            self.socket.settimeout(self._real_timeout)   ### ставим короткий таймаут для имитации неблокирующего режима
+            tries = self.timeout / self._real_timeout
+            while tries:
+                if self.socket:   ### тут должен быть лок
+                    try:
+                        data = self.socket.recv(1024)
+                    except socket.timeout:
+                        tries = tries - 1
+                    except OSError as err:
+                        raise DCSocketError(err.strerror, close=self)
+                    else:
+                        if not data:   # len(data) == 0 --> удаленный сокет закрыт
+                            raise DCSocketError("closed", close=self)
+                        else:
+                            self.socket.settimeout(self.timeout)   ### восстанавливаем нормальный таймаут (временная мера)
+                            return data
+                else:
+                    return False
+            raise DCSocketError("receive timeout ({} s)".format(self.timeout), close=self)
         if not self.recv_list:
-            recv = bytearray()
+            recv_data = bytearray()
             while True:
-                try:
-                    chunk = self.socket.recv(1024)
-                except socket.timeout:
-                    raise DCSocketError("receive timeout ({} s)".format(self.timeout), close=self)
-                except OSError as err:
-                    raise DCSocketError(err.strerror, close=self)
-                if not chunk:   # len(recv) == 0 --> удаленный сокет закрыт
-                    raise DCSocketError("closed", close=self)
-                recv.extend(chunk)
+                with self.socket_lock:
+                    chunk = _recv(self)
+                if not chunk:   # если self.connected=False --> _recv() вернул False
+                    chunk = b'|'   ### такой-то workaround!
+                recv_data.extend(chunk)
                 if chunk.endswith(b'|'):
                     break
-            if self.debug: print("<--", recv)
-            self.recv_list = recv.split(b'|')
+            if self.debug: print("<--", recv_data)
+            self.recv_list = recv_data.split(b'|')
             if not self.recv_list[-1]:   # обычно команды заканчиваются на |
                 self.recv_list.pop()     # поэтому удаляем последний элемент
         data = self.recv_list.pop(0)
