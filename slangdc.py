@@ -6,7 +6,7 @@ import random
 import string
 import re
 import time
-from threading import Lock
+from threading import RLock
 
 version = '0.1.0'
 
@@ -171,7 +171,7 @@ class DCClient:
         if timeout: self.timeout = timeout
         self.connected = False
         self.socket = None   # None или socket object (False или True в логическом контексте соответственно)
-        self.socket_lock = Lock()
+        self.socket_lock = RLock()
         self.recv_list = []
         self.message_queue = MsgQueue()
         self.nicklist = None
@@ -203,7 +203,7 @@ class DCClient:
             self.send(supports, b'$Key ' + key, '$ValidateNick ' + self.nick)
             tries = 10
             while tries:
-                data = self.receive()   # тут используем высокоуровневый метод
+                data = self.receive(err_message=False)   # тут используем высокоуровневый метод
                 if not data is None:   # None означает, что команда уже была обработана в receive()
                     if data == '$GetPass':
                         if not self.password:
@@ -237,6 +237,7 @@ class DCClient:
                 self.nicklist = None
             self.send('$Version 1,0091', getnicklist, '$MyINFO $ALL {0} {1}<slangdc V:{2},M:P,H:0/1/0,S:{3}>$ $100 ${4}${5}$'.format(self.nick, self.desc, version, self.slots, self.email, self.share))
             return True
+
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.settimeout(self.timeout)   # коннектимся в блокирующем режиме с заданным таймаутом
         self.message_queue.mput(type=MSGINFO, text="connecting to {0}".format(self.address))
@@ -246,7 +247,7 @@ class DCClient:
             self.message_queue.mput(type=MSGERR, text="[socket] {0}".format(err))
         else:
             if not self.connected:
-                self.disconnect()
+                self.socket_close()
             else:
                 self.message_queue.mput(type=MSGINFO, text="connected")
         return self.connected
@@ -278,7 +279,7 @@ class DCClient:
         """
         def _recv(self):
             self.socket.settimeout(self._real_timeout)   ### ставим короткий таймаут для имитации неблокирующего режима
-            tries = self.timeout / self._real_timeout
+            tries = int(self.timeout / self._real_timeout)
             while tries:
                 if self.socket:   ### тут должен быть лок
                     try:
@@ -296,6 +297,7 @@ class DCClient:
                 else:
                     return False
             raise DCSocketError("receive timeout ({} s)".format(self.timeout), close=self)
+
         if not self.recv_list:
             recv_data = bytearray()
             while True:
@@ -345,10 +347,12 @@ class DCClient:
             raise DCSocketError(err.strerror, close=self)
 
     def chat_send(self, message, encoding=None):
+        if not self.connected: return False
         message = dcescape(message)
         self.send('<{0}> {1}'.format(self.nick, message), encoding=encoding)
 
     def pm_send(self, recipient, message, encoding=None):
+        if not self.connected: return False
         self.send('$To: {0} From: {1} $<{1}> {2}'.format(recipient, self.nick, dcescape(message)), encoding=encoding)
         if message.startswith('/me '):
             message = message[4:]
@@ -357,7 +361,7 @@ class DCClient:
             me = False
         self.message_queue.mput(type=MSGPM, recipient=recipient, text=message, me=me)
 
-    def receive(self, raise_exc=True, encoding=None):
+    def receive(self, raise_exc=True, err_message=True, encoding=None):
         """ высокоуровневая обёртка над recv()
 
             обрабатывает сообщения чата, PM, различные
@@ -375,8 +379,11 @@ class DCClient:
             raise_exc=False - не возбуждает исключение,
             возвращает False (иными словами, подавляет
             исключение)
-        """
 
+            если err_message=True (по умолчанию), то при
+            исключении кладёт в очередь сообщений MSGERR
+            c ошибкой ("[socket] ошибка")
+        """
         def parse_msg(msg_string):
             """ пытается извлечь из строки ник, текст сообщения
                 и флаг '/me' ("третьего лица") — понимает разные
@@ -403,7 +410,8 @@ class DCClient:
         try:
             data = self.recv(encoding=encoding)
         except DCSocketError as err:
-            self.message_queue.mput(type=MSGERR, text="[socket] {0}".format(err))
+            if err_message:
+                self.message_queue.mput(type=MSGERR, text="[socket] {0}".format(err))
             if raise_exc:
                 raise DCSocketError(str(err))
             else:
