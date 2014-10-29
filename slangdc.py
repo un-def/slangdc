@@ -134,12 +134,11 @@ class NickList(set):
 
 class DCClient:
 
-    timeout = None
     debug = False
     showjoins = False
     _real_timeout = 0.1   # "настоящий" таймаут (для socket.settimeout()) — sort of неблокирующий сокет
 
-    def __init__(self, address, nick=None, password=None, desc="", email="", share=0, slots=1, encoding='utf-8', timeout=None):
+    def __init__(self, address, nick=None, password=None, desc="", email="", share=0, slots=1, encoding='utf-8', timeout=600):
         """ address='dchub.com[:port]'
                 стандартный порт (411) можно не указывать
             nick='nick'
@@ -151,8 +150,6 @@ class DCClient:
             timeout=sec
                 таймаут получения данных из сокета в секундах; по таймауту
                 recv() возбуждает DCError
-                по умолчанию __class__.timeout=None -->
-                http://docs.python.org/3.4/library/socket.html#socket-timeouts
         """
         self.address = address
         host, _, port = address.partition(':')
@@ -168,7 +165,8 @@ class DCClient:
         self.share = share
         self.slots = slots
         self.encoding = encoding
-        if timeout: self.timeout = timeout
+        self.timeout = timeout
+        self.timeout_attempts = int(self.timeout / self._real_timeout)   # количество попыток чтения из сокета
         self.connected = False
         self.socket = None   # None или socket object (False или True в логическом контексте соответственно)
         self.socket_lock = RLock()
@@ -201,8 +199,8 @@ class DCClient:
                 supports = ''
             key = self.lock2key(lock)
             self.send(supports, b'$Key ' + key, '$ValidateNick ' + self.nick)
-            tries = 10
-            while tries:
+            attempts = 10
+            while attempts:
                 data = self.receive(err_message=False)   # тут используем высокоуровневый метод
                 if not data is None:   # None означает, что команда уже была обработана в receive()
                     if data == '$GetPass':
@@ -225,7 +223,7 @@ class DCClient:
                         self.message_queue.mput(type=MSGINFO, text="Hello, {0}".format(self.nick))
                         break
                     else:
-                        tries -= 1
+                        attempts -= 1
             else:   # если вышли не по break (т.е. не получили Hello)
                 self.message_queue.mput(type=MSGERR, text="$Hello was not received")
                 return False
@@ -279,13 +277,13 @@ class DCClient:
         """
         def _recv(self):
             self.socket.settimeout(self._real_timeout)   ### ставим короткий таймаут для имитации неблокирующего режима
-            tries = int(self.timeout / self._real_timeout)
-            while tries:
+            attempts = self.timeout_attempts
+            while attempts:
                 if self.socket:   ### тут должен быть лок
                     try:
                         data = self.socket.recv(1024)
                     except socket.timeout:
-                        tries = tries - 1
+                        attempts -= 1
                     except OSError as err:
                         raise DCSocketError(err.strerror, close=self)
                     else:
@@ -304,7 +302,7 @@ class DCClient:
                 with self.socket_lock:
                     chunk = _recv(self)
                 if not chunk:   # если self.connected=False --> _recv() вернул False
-                    chunk = b'|'   ### такой-то workaround!
+                    break
                 recv_data.extend(chunk)
                 if chunk.endswith(b'|'):
                     break
