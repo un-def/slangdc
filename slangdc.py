@@ -21,7 +21,25 @@ def dcescape(text):
 def dcunescape(text):
     return text.replace('&#36;', '$').replace('&#124;', '|')
 
-class DCError(Exception):
+def lock2key(lock):   # http://wiki.mydc.ru/Lock2Key
+    """ вычисляет key из lock
+        key - bytes или bytearray
+        lock - byrearray
+    """
+    keylist = [lock[0] ^ lock[-1] ^ lock[-2] ^ 5]
+    keylist.extend(x1 ^ x2 for x1, x2 in zip(lock, lock[1:]))
+    escaping = (0, 5, 36, 96, 124, 126)
+    key = bytearray()
+    for x in keylist:
+        x = ((x << 4) & 240) | ((x >> 4) & 15)
+        if x in escaping:
+            key.extend(bytes('/%DCN{:03d}%/'.format(x), 'ascii'))
+        else:
+            key.append(x)
+    return key
+
+
+class DCSocketError(Exception):
 
     def __init__(self, error, close=None):
         """ error="текст ошибки"
@@ -35,10 +53,6 @@ class DCError(Exception):
 
         def __str__(self):
             return self.error
-
-
-class DCSocketError(DCError):
-    pass
 
 
 class MsgQueue(queue.Queue):
@@ -197,7 +211,7 @@ class DCClient:
                 supports = '$Supports HubTopic'
             else:
                 supports = ''
-            key = self.lock2key(lock)
+            key = lock2key(lock)
             self.send(supports, b'$Key ' + key, '$ValidateNick ' + self.nick)
             attempts = 10
             while attempts:
@@ -316,50 +330,6 @@ class DCClient:
         else:
             return data.decode(encoding=encoding, errors='replace')
 
-    def send(self, *commands, encoding=None):
-        """ send(command1, command2, …, [encoding='enc'])
-            отправить в сокет b'command1|command2|…|'
-
-            commandN может быть
-                str - энкодится в указанную кодировку
-                bytes|bytearray - как есть
-                пустые объекты игнорируются:
-                send('hello', '', b'bye') --> b'hello|bye|'
-
-            encoding=
-                'enc' - кодировать строки в 'enc'
-                None (по умолчанию) - кодировка по умолчанию
-        """
-        data = bytearray()
-        if encoding is None: encoding = self.encoding
-        for command in commands:
-            if command:
-                if isinstance(command, str):
-                    command = command.encode(encoding=encoding, errors='replace')
-                data.extend(command + b'|')
-        if self.debug: print("-->", data)
-        try:
-            return self.socket.send(data)
-        except OSError as err:
-            raise DCSocketError(err.strerror, close=self)
-        except AttributeError:   # workaround - если в другом треде "убили" сокет socket_close()
-            return False
-
-    def chat_send(self, message, encoding=None):
-        if not self.connected: return False
-        return self.send('<{0}> {1}'.format(self.nick, dcescape(message)), encoding=encoding)
-
-    def pm_send(self, recipient, message, encoding=None):
-        if not self.connected: return False
-        sent = self.send('$To: {0} From: {1} $<{1}> {2}'.format(recipient, self.nick, dcescape(message)), encoding=encoding)
-        if message.startswith('/me '):
-            message = message[4:]
-            me = True
-        else:
-            me = False
-        self.message_queue.mput(type=MSGPM, recipient=recipient, text=message, me=me)
-        return sent
-
     def receive(self, raise_exc=True, err_message=True, encoding=None):
         """ высокоуровневая обёртка над recv()
 
@@ -472,20 +442,46 @@ class DCClient:
                             return None
             return data
 
-    @staticmethod
-    def lock2key(lock):   # http://wiki.mydc.ru/Lock2Key
-        """ вычисляет key из lock
-            key - bytes или bytearray
-            lock - byrearray
+    def send(self, *commands, encoding=None):
+        """ send(command1, command2, …, [encoding='enc'])
+            отправить в сокет b'command1|command2|…|'
+
+            commandN может быть
+                str - энкодится в указанную кодировку
+                bytes|bytearray - как есть
+                пустые объекты игнорируются:
+                send('hello', '', b'bye') --> b'hello|bye|'
+
+            encoding=
+                'enc' - кодировать строки в 'enc'
+                None (по умолчанию) - кодировка по умолчанию
         """
-        keylist = [lock[0] ^ lock[-1] ^ lock[-2] ^ 5]
-        keylist.extend(x1 ^ x2 for x1, x2 in zip(lock, lock[1:]))
-        escaping = (0, 5, 36, 96, 124, 126)
-        key = bytearray()
-        for x in keylist:
-            x = ((x << 4) & 240) | ((x >> 4) & 15)
-            if x in escaping:
-                key.extend(bytes('/%DCN{:03d}%/'.format(x), 'ascii'))
-            else:
-                key.append(x)
-        return key
+        data = bytearray()
+        if encoding is None: encoding = self.encoding
+        for command in commands:
+            if command:
+                if isinstance(command, str):
+                    command = command.encode(encoding=encoding, errors='replace')
+                data.extend(command + b'|')
+        if self.debug: print("-->", data)
+        try:
+            return self.socket.send(data)
+        except OSError as err:
+            raise DCSocketError(err.strerror, close=self)
+        except AttributeError:   # workaround - если в другом треде "убили" сокет socket_close()
+            return False
+
+    def chat_send(self, message, encoding=None):
+        if not self.connected: return False
+        return self.send('<{0}> {1}'.format(self.nick, dcescape(message)), encoding=encoding)
+
+    def pm_send(self, recipient, message, encoding=None):
+        if not self.connected: return False
+        sent = self.send('$To: {0} From: {1} $<{1}> {2}'.format(recipient, self.nick, dcescape(message)), encoding=encoding)
+        if message.startswith('/me '):
+            message = message[4:]
+            me = True
+        else:
+            me = False
+        self.message_queue.mput(type=MSGPM, recipient=recipient, text=message, me=me)
+        return sent
