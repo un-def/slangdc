@@ -150,7 +150,8 @@ class DCClient:
 
     debug = False
     showjoins = False
-    _real_timeout = 0.5   # "настоящий" таймаут (для socket.settimeout()) — sort of неблокирующий сокет
+    _connect_timeout = 60   # таймаут для попытки коннекта
+    _real_timeout = 0.5   # "настоящий" таймаут для recv - вместо блокирующего чтения с заданным в настройках timeout будем много раз (timeout/_real_timeout) пытаться прочитать с маленьким таймаутом; можно было бы использовать select
 
     def __init__(self, address, nick=None, password=None, desc="", email="", share=0, slots=1, encoding='utf-8', timeout=600):
         """ address='dchub.com[:port]'
@@ -198,7 +199,7 @@ class DCClient:
             try:
                 self.socket.connect(self._address)
             except socket.timeout:
-                raise DCSocketError("connection timeout ({0} s)".format(self.timeout), close=self)
+                raise DCSocketError("connection timeout", close=self)
             except OSError as err:
                 raise DCSocketError(err.strerror, close=self)
             data = self.recv(encoding=False)   # $Lock получаем без декодирования (bytes)
@@ -251,7 +252,7 @@ class DCClient:
             return True
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.settimeout(self.timeout)   # коннектимся в блокирующем режиме с заданным таймаутом
+        self.socket.settimeout(self._connect_timeout)
         self.message_queue.mput(type=MSGINFO, text="connecting to {0}".format(self.address))
         try:
             self.connected = _connect(self)

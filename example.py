@@ -14,7 +14,7 @@ settings = {
     'desc': 'git',
     'slots': 10,
     'encoding': 'windows-1251',
-    'timeout': 300
+    'timeout': 900
 }
 
 class DCThread(threading.Thread):
