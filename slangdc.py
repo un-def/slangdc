@@ -183,6 +183,7 @@ class DCClient:
         self.timeout = timeout
         self.timeout_attempts = int(self.timeout / self._real_timeout)   # количество попыток чтения из сокета
         self.connected = False
+        self.connecting = False   # флаг-индикатор процесса коннекта (до и после (не)успешного коннекта — False)
         self.socket = None   # None или socket object (False или True в логическом контексте соответственно)
         self.socket_lock = RLock()
         self.recv_list = []
@@ -251,6 +252,7 @@ class DCClient:
             self.send('$Version 1,0091', getnicklist, '$MyINFO $ALL {0} {1}<slangdc V:{2},M:P,H:0/1/0,S:{3}>$ $100 ${4}${5}$'.format(self.nick, self.desc, version, self.slots, self.email, self.share))
             return True
 
+        self.connecting = True
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.settimeout(self._connect_timeout)
         self.message_queue.mput(type=MSGINFO, text="connecting to {0}".format(self.address))
@@ -264,12 +266,14 @@ class DCClient:
             else:
                 self.message_queue.mput(type=MSGINFO, text="connected")
                 self.socket.settimeout(self._real_timeout)   # ставим короткий таймаут для имитации неблокирующего режима
+        self.connecting = False
         return self.connected
 
     def socket_close(self):
         with self.socket_lock:
-            self.socket.close()
-            self.socket = None
+            if self.socket:
+                self.socket.close()
+                self.socket = None
 
     def disconnect(self):
         self.connected = False
@@ -316,7 +320,7 @@ class DCClient:
                 with self.socket_lock:
                     chunk = _recv(self)
                 if not chunk:   # если self.connected=False --> _recv() вернул False
-                    break
+                    chunk = b'|'   # recv_data = b'|' --> split --> [b'', b'']
                 recv_data.extend(chunk)
                 if chunk.endswith(b'|'):
                     break

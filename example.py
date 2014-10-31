@@ -24,6 +24,7 @@ class DCThread(threading.Thread):
         threading.Thread.__init__(self)
 
     def run(self):
+        self.dc.connect(get_nicks=True)
         while self.dc.connected:
             self.dc.receive(raise_exc=False)
 
@@ -109,7 +110,6 @@ if __name__ == '__main__':
     dc = slangdc.DCClient(**settings)
     PrintThread(dc).start()
     InputThread(dc).start()
-    dc.connect(get_nicks=True)
     dcthread = DCThread(dc)
     dcthread.start()
     dcthread.join()
