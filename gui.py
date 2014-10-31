@@ -30,22 +30,23 @@ class Wrapper:
 
     def quit(self):
         self.disconnect()
-        print("### closing ###")
         sys.exit()
 
-    def test(self):
+    def send(self, entry):
         if self.dc and self.dc.connected:
-            self.dc.chat_send("test")
+            message = entry.get()
+            if message:
+                self.dc.chat_send(message)
+                entry.delete(0, END)
         
 wrapper = Wrapper()
 root = Tk()
 root.title("slangdc.Tk")
-button_connect = Button(root, text="connect", command=wrapper.connect)
-button_connect.pack()
-button_disconnect = Button(root, text="disconnect", command=wrapper.disconnect)
-button_disconnect.pack()
-button_test = Button(root, text="test", command=wrapper.test)
-button_test.pack()
-button_quit = Button(root, text="quit", command=wrapper.quit)
-button_quit.pack()
+Button(root, text="connect", command=wrapper.connect).pack(side=LEFT)
+Button(root, text="disconnect", command=wrapper.disconnect).pack(side=LEFT)
+msg_entry = Entry(root, width=50)
+msg_entry.pack(side=LEFT)
+msg_entry.bind('<Return>', lambda e: wrapper.send(msg_entry))
+Button(root, text="send", command=lambda: wrapper.send(msg_entry)).pack(side=LEFT)
+Button(root, text="quit", command=wrapper.quit).pack(side=LEFT)
 root.mainloop()
