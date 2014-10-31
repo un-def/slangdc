@@ -24,20 +24,21 @@ class DCThread(threading.Thread):
         threading.Thread.__init__(self)
 
     def run(self):
-        self.dc.connect(get_nicks=True)
         while self.dc.connected:
             self.dc.receive(raise_exc=False)
 
 
 class PrintThread(threading.Thread):
 
+    disconnect_countdown = 10
+
     def __init__(self, dc):
         self.dc = dc
         threading.Thread.__init__(self)
-        self.daemon = True
 
     def run(self):
-        while True:
+        counter = self.disconnect_countdown
+        while self.dc.socket or counter:   # workaround, чтобы автоматически прибить тред после отключения (удаления сокета), но при этом забрать последнее сообщение (-ия) ("disconnect")
             message = self.dc.message_queue.mget()
             if message:
                 if message['type'] == slangdc.MSGCHAT:
@@ -65,6 +66,8 @@ class PrintThread(threading.Thread):
                     pref = "***"
                 timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
                 print("{0} {1} {2}".format(timestamp, pref, message['text']))
+            if not self.dc.socket:
+                counter -= 1
             time.sleep(0.01)
 
 
@@ -102,11 +105,12 @@ class InputThread(threading.Thread):
                 else:
                     dc.chat_send(message)
 
-
-dc = slangdc.DCClient(**settings)
-PrintThread(dc).start()
-InputThread(dc).start()
-dcthread = DCThread(dc)
-dcthread.start()
-dcthread.join()
-time.sleep(0.1)
+if __name__ == '__main__':
+    dc = slangdc.DCClient(**settings)
+    PrintThread(dc).start()
+    InputThread(dc).start()
+    dc.connect(get_nicks=True)
+    dcthread = DCThread(dc)
+    dcthread.start()
+    dcthread.join()
+    time.sleep(0.1)
