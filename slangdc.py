@@ -150,7 +150,7 @@ class DCClient:
 
     debug = False
     showjoins = False
-    _connect_timeout = 60   # таймаут для попытки коннекта
+    _connect_timeout = 30   # таймаут для попытки коннекта (socket.connect и recv при хендшейке)
     _real_timeout = 0.5   # "настоящий" таймаут для recv - вместо блокирующего чтения с заданным в настройках timeout будем много раз (timeout/_real_timeout) пытаться прочитать с маленьким таймаутом; можно было бы использовать select
 
     def __init__(self, address, nick=None, password=None, desc="", email="", share=0, slots=1, encoding='utf-8', timeout=600):
@@ -181,7 +181,6 @@ class DCClient:
         self.slots = slots
         self.encoding = encoding
         self.timeout = timeout
-        self.timeout_attempts = int(self.timeout / self._real_timeout)   # количество попыток чтения из сокета
         self.connected = False
         self.connecting = False   # флаг-индикатор процесса коннекта (до и после (не)успешного коннекта — False)
         self.socket = None   # None или socket object (False или True в логическом контексте соответственно)
@@ -197,13 +196,15 @@ class DCClient:
             возвращает True или False
         """
         def _connect(self):
+            self.socket.settimeout(self._connect_timeout)   # настоящий блокирующий таймаут только для коннекта (не зависит от настроек)
             try:
                 self.socket.connect(self._address)
             except socket.timeout:
                 raise DCSocketError("connection timeout", close=self)
             except OSError as err:
                 raise DCSocketError(err.strerror, close=self)
-            data = self.recv(encoding=False)   # $Lock получаем без декодирования (bytes)
+            self.socket.settimeout(self._real_timeout)   # ставим короткий таймаут для имитации неблокирующего режима при чтении
+            data = self.recv(timeout=self._connect_timeout, encoding=False)   # $Lock получаем без декодирования (bytes)
             lock_received = re.fullmatch(b'\$Lock (.+) Pk=.+', data)
             if not lock_received:
                 self.message_queue.mput(type=MSGERR, text="$Lock is not received")
@@ -217,7 +218,7 @@ class DCClient:
             self.send(supports, b'$Key ' + key, '$ValidateNick ' + self.nick)
             attempts = 10
             while attempts:
-                data = self.receive(err_message=False)   # тут используем высокоуровневый метод
+                data = self.receive(timeout=self._connect_timeout, err_message=False)   # тут используем высокоуровневый метод
                 if not data is None:   # None означает, что команда уже была обработана в receive()
                     if data == '$GetPass':
                         if not self.password:
@@ -254,7 +255,6 @@ class DCClient:
 
         self.connecting = True
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.settimeout(self._connect_timeout)
         self.message_queue.mput(type=MSGINFO, text="connecting to {0}".format(self.address))
         try:
             self.connected = _connect(self)
@@ -265,7 +265,6 @@ class DCClient:
                 self.socket_close()
             else:
                 self.message_queue.mput(type=MSGINFO, text="connected")
-                self.socket.settimeout(self._real_timeout)   # ставим короткий таймаут для имитации неблокирующего режима
         self.connecting = False
         return self.connected
 
@@ -280,7 +279,7 @@ class DCClient:
         self.socket_close()
         self.message_queue.mput(type=MSGINFO, text="disconnected")
 
-    def recv(self, encoding=None):
+    def recv(self, timeout=None, encoding=None):
         """ recv([encoding=False|'enc'])
             возвращает одну команду DC без конечного '|':
                 хаб отправил 'hello|bye|'
@@ -290,15 +289,18 @@ class DCClient:
             возвращает str или bytearray (в зависимости от
             encoding) или False в случае ошибки или таймаута
 
+            timeout=таймаут в секундах
+                если не указан или None, то == self.timeout
+
             encoding=
                 False - вернуть без декодирования (bytearray)
                 'enc' - декодировать как 'enc'
                 None (по умолчанию) - кодировка по умолчанию
         """
-        def _recv(self):
-            attempts = self.timeout_attempts
+        def _recv(self, timeout):
+            attempts = int(timeout / self._real_timeout)
             while attempts:
-                if self.socket:   ### тут должен быть лок
+                if self.socket:
                     try:
                         data = self.socket.recv(1024)
                     except socket.timeout:
@@ -312,13 +314,14 @@ class DCClient:
                             return data
                 else:
                     return False
-            raise DCSocketError("receive timeout ({} s)".format(self.timeout), close=self)
+            raise DCSocketError("receive timeout ({} s)".format(timeout), close=self)
 
         if not self.recv_list:
             recv_data = bytearray()
+            if not timeout: timeout = self.timeout
             while True:
                 with self.socket_lock:
-                    chunk = _recv(self)
+                    chunk = _recv(self, timeout)
                 if not chunk:   # если self.connected=False --> _recv() вернул False
                     chunk = b'|'   # recv_data = b'|' --> split --> [b'', b'']
                 recv_data.extend(chunk)
@@ -335,8 +338,11 @@ class DCClient:
         else:
             return data.decode(encoding=encoding, errors='replace')
 
-    def receive(self, raise_exc=True, err_message=True, encoding=None):
+    def receive(self, timeout=None, raise_exc=True, err_message=True, encoding=None):
         """ высокоуровневая обёртка над recv()
+
+            timeout=таймаут в секундах
+            если не указан или None, то == self.timeout
 
             обрабатывает сообщения чата, PM, различные
             команды типа $HubName, выполняя соответствующие
@@ -382,7 +388,7 @@ class DCClient:
             return False
 
         try:
-            data = self.recv(encoding=encoding)
+            data = self.recv(timeout=timeout, encoding=encoding)
         except DCSocketError as err:
             if err_message:
                 self.message_queue.mput(type=MSGERR, text="[socket] {0}".format(err))
