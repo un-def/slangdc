@@ -34,11 +34,27 @@ class Wrapper:
 
     def send(self, entry):
         if self.dc and self.dc.connected:
-            message = entry.get()
-            if message:
-                self.dc.chat_send(message)
+            etext = entry.get()
+            if etext:
+                if etext.startswith('/pm '):
+                    nick, text = etext[4:].split(' ', 1)
+                    self.dc.pm_send(nick, text)
+                if etext.startswith('/user '):
+                    nick = etext[6:]
+                    print("user", nick, "is", "online" if nick in self.dc.nicklist else "offline")
+                elif etext == '/oplist':
+                    print("ops:", " ".join(sorted(self.dc.nicklist.ops)))
+                elif etext == '/botlist':
+                    print("bots:", " ".join(sorted(self.dc.nicklist.bots)))
+                elif etext == '/usercount':
+                    print("usercount:", len(self.dc.nicklist))
+                elif etext == '/quit':
+                    self.quit()
+                elif not etext.startswith('/') or etext.startswith('/me '):
+                    self.dc.chat_send(etext)
                 entry.delete(0, END)
-        
+
+
 wrapper = Wrapper()
 root = Tk()
 root.title("slangdc.Tk")
