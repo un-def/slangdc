@@ -200,7 +200,7 @@ class DCClient:
             try:
                 self.socket.connect(self._address)
             except socket.timeout:
-                raise DCSocketError("connection timeout", close=self)
+                raise DCSocketError("connection timeout ({} s)".format(self._connect_timeout), close=self)
             except OSError as err:
                 raise DCSocketError(err.strerror, close=self)
             self.socket.settimeout(self._real_timeout)   # ставим короткий таймаут для имитации неблокирующего режима при чтении
