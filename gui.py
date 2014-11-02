@@ -1,6 +1,5 @@
 # -*-coding: UTF-8 -*-
 from tkinter import *
-import sys
 import slangdc
 from example import PrintThread, DCThread
 
@@ -52,7 +51,7 @@ class TestGui(Frame):
 
     def quit(self):
         self.disconnect()
-        sys.exit()
+        self.__class__.__base__.quit(self)   # можно и просто Frame.quit(self)
 
     def send(self, event=None):
         if self.dc and self.dc.connected:
