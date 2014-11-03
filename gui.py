@@ -7,11 +7,11 @@ from example import PrintThread, DCThread
 
 class TestGui(Frame):
 
-    def __init__(self, parent=None):
-        self.settings = conf.load_settings()
-        self.settings['address'] = 'allavtovo.ru'
+    def __init__(self, root=None):
+        Frame.__init__(self, root)
+        #self.settings_window = False
+        self.root = root
         self.dc = None
-        Frame.__init__(self, parent)
         self.pack(expand=YES)
         self.make_widgets()
 
@@ -19,11 +19,12 @@ class TestGui(Frame):
         ftop = Frame(self)
         ftop.pack()
         self.address_entry = Entry(ftop)
-        self.address_entry.insert(0, self.settings['address'])
+        self.address_entry.insert(0, 'allavtovo.ru')
         self.address_entry.pack(side=LEFT)
         self.address_entry.bind('<Return>', self.connect)
         Button(ftop, text="connect", command=self.connect).pack(side=LEFT)
         Button(ftop, text="disconnect", command=self.disconnect).pack(side=LEFT)
+        Button(ftop, text="settings", command=self.show_settings).pack(side=LEFT)
         Button(ftop, text="quit", command=self.quit).pack(side=LEFT)
         fbottom = Frame(self)
         fbottom.pack()
@@ -37,8 +38,7 @@ class TestGui(Frame):
             address = self.address_entry.get().strip()
             if address:
                 self.disconnect()   # отключимся, если уже подключены
-                self.settings['address'] = address
-                self.dc = slangdc.DCClient(**self.settings)
+                self.dc = slangdc.DCClient(address=address, **config.global_settings)
                 PrintThread(self.dc).start()
                 DCThread(self.dc).start()
 
@@ -50,6 +50,12 @@ class TestGui(Frame):
     def quit(self):
         self.disconnect()
         self.__class__.__base__.quit(self)   # можно и просто Frame.quit(self)
+
+    def show_settings(self):
+        try:
+            self.settings_window.focus_set()
+        except Exception:   # workaround - AttribureError, _tkinter.TclError
+            self.settings_window = SettingsWindow()
 
     def send(self, event=None):
         if self.dc and self.dc.connected:
@@ -73,7 +79,23 @@ class TestGui(Frame):
                     self.dc.chat_send(etext)
                 self.msg_entry.delete(0, END)
 
+class SettingsWindow(Toplevel):
 
+    def __init__(self, root=None):
+        Toplevel.__init__(self, root)
+        self.title("settings")
+        self.protocol('WM_DELETE_WINDOW', lambda: None)
+        Button(self, text="save", command=self.save).pack(side=LEFT)
+        Button(self, text="cancel", command=self.cancel).pack(side=LEFT)
+
+    def save(self):
+        pass
+
+    def cancel(self):
+        self.destroy()
+
+
+config = conf.Config()
 root = Tk()
 root.title("slangdc.Tk")
 gui = TestGui(root)
