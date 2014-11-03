@@ -138,15 +138,20 @@ class PassWindow(Toplevel):
         Toplevel.__init__(self, root)
         self.title("password")
         self.resizable(width=FALSE, height=FALSE)
-        self.protocol('WM_DELETE_WINDOW', self.destroy)
+        self.protocol('WM_DELETE_WINDOW', self.close)
         self.transient()
         self.focus_set()
         self.grab_set()
         Label(self, text='password', anchor=W).pack(side=LEFT)
         self.password = StringVar()
         pass_entry = Entry(self, show='*', textvariable=self.password)
-        pass_entry.pack(side=RIGHT, expand=YES, fill=X)
+        pass_entry.pack(side=LEFT, expand=YES, fill=X)
         pass_entry.bind('<Return>', self.confirm)
+        Button(self, text="ok", command=self.confirm).pack(side=RIGHT)
+
+    def close(self):
+        self.password.set('')
+        self.destroy()
 
     def confirm(self, event=None):
         if self.password.get():
