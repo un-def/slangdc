@@ -50,5 +50,3 @@ class Config:
     def update_settings(self, settings):
         self.settings = settings
         self.save_settings(settings)
-
-

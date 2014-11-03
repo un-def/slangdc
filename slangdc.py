@@ -1,5 +1,4 @@
 # -*-coding: UTF-8 -*-
-# python 3.3+
 import socket
 import queue
 import random
@@ -164,7 +163,7 @@ class DCClient:
                 кодировка хаба, по умолчанию utf-8
             timeout=sec
                 таймаут получения данных из сокета в секундах; по таймауту
-                recv() возбуждает DCError
+                recv() возбуждает DCSocketError
         """
         self.address = address
         host, _, port = address.partition(':')
@@ -191,7 +190,7 @@ class DCClient:
         self.hubname = None
         self.hubtopic = None
 
-    def connect(self, get_nicks=False, pass_callback=None):
+    def connect(self, get_nicks=True, pass_callback=None):
         """ подключиться к хабу
             возвращает True или False
 
@@ -228,7 +227,7 @@ class DCClient:
             self.send(supports, b'$Key ' + key, '$ValidateNick ' + self.nick)
             attempts = 10
             while attempts:
-                data = self.receive(timeout=self._connect_timeout, err_message=False)   # тут используем высокоуровневый метод
+                data = self.receive(timeout=self._connect_timeout, err_message=False)
                 if not data is None:   # None означает, что команда уже была обработана в receive()
                     if data == '$GetPass':
                         if not self.password and pass_callback:

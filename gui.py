@@ -62,7 +62,7 @@ class TestGui(Frame):
         try:
             self.settings_window.focus_set()
         except Exception:   # workaround - AttribureError, _tkinter.TclError
-            self.settings_window = SettingsWindow()
+            self.settings_window = SettingsWindow(self.root)
 
     def send(self, event=None):
         if self.dc and self.dc.connected:
