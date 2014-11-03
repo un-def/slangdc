@@ -1,8 +1,10 @@
 # -*-coding: UTF-8 -*-
+import time
+import threading
 from tkinter import *
 import slangdc
 import conf
-from example import PrintThread, DCThread
+from example import PrintThread
 
 
 class TestGui(Frame):
@@ -32,6 +34,12 @@ class TestGui(Frame):
         self.msg_entry.bind('<Return>', self.send)
         Button(fbottom, text="send", command=self.send).pack(side=LEFT)
 
+    def get_pass(self):
+        pass_window = PassWindow(self.root)
+        time.sleep(0.1)   # по непонятной причине без этого костыля окно пароля блокируется почти всегда
+        pass_window.wait_window()
+        return pass_window.password.get()
+
     def connect(self, event=None):
         if not self.dc or not self.dc.connecting:   # если ещё не подключались или не подключаемся в данный момент
             address = self.address_entry.get().strip()
@@ -39,7 +47,7 @@ class TestGui(Frame):
                 self.disconnect()   # отключимся, если уже подключены
                 self.dc = slangdc.DCClient(address=address, **config.settings)
                 PrintThread(self.dc).start()
-                DCThread(self.dc).start()
+                DCThread(self.dc, pass_callback=self.get_pass).start()
 
     def disconnect(self):
         if self.dc:
@@ -78,11 +86,13 @@ class TestGui(Frame):
                     self.dc.chat_send(etext)
                 self.msg_entry.delete(0, END)
 
+
 class SettingsWindow(Toplevel):
 
     def __init__(self, root=None):
         Toplevel.__init__(self, root)
         self.title("settings")
+        self.resizable(width=FALSE, height=FALSE)
         self.protocol('WM_DELETE_WINDOW', self.close)
         # (field_name, field_type, field_text)
         fields = (
@@ -122,9 +132,44 @@ class SettingsWindow(Toplevel):
         self.destroy()
 
 
+class PassWindow(Toplevel):
+
+    def __init__(self, root=None):
+        Toplevel.__init__(self, root)
+        self.title("password")
+        self.resizable(width=FALSE, height=FALSE)
+        self.protocol('WM_DELETE_WINDOW', self.destroy)
+        self.transient()
+        self.focus_set()
+        self.grab_set()
+        Label(self, text='password', anchor=W).pack(side=LEFT)
+        self.password = StringVar()
+        pass_entry = Entry(self, show='*', textvariable=self.password)
+        pass_entry.pack(side=RIGHT, expand=YES, fill=X)
+        pass_entry.bind('<Return>', self.confirm)
+
+    def confirm(self, event=None):
+        if self.password.get():
+            self.destroy()
+
+
+class DCThread(threading.Thread):
+
+    def __init__(self, dc, pass_callback=None):
+        self.dc = dc
+        self.pass_callback=pass_callback
+        threading.Thread.__init__(self)
+
+    def run(self):
+        self.dc.connect(get_nicks=True, pass_callback=self.pass_callback)
+        while self.dc.connected:
+            self.dc.receive(raise_exc=False)
+
+
 config = conf.Config()
 root = Tk()
 root.title("slangdc.Tk")
+root.resizable(width=FALSE, height=FALSE)
 gui = TestGui(root)
 root.protocol('WM_DELETE_WINDOW', gui.quit)
 root.mainloop()

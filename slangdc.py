@@ -191,9 +191,19 @@ class DCClient:
         self.hubname = None
         self.hubtopic = None
 
-    def connect(self, get_nicks=False):
+    def connect(self, get_nicks=False, pass_callback=None):
         """ подключиться к хабу
             возвращает True или False
+
+            get_nicks=True
+                отправить команду $GetNickList
+
+            pass_callback=<callable_object>
+                коллбэк, вызываемый, если пароль не был указан, но хаб его
+                запрашивает; должен возвращать str c паролем
+                если возвращаемое значение в логическом контексте будет False
+                ('', None, False) или коллбэк не задан, подключение будет
+                прервано с ошибкой "нужен пароль"
         """
         def _connect(self):
             self.socket.settimeout(self._connect_timeout)   # настоящий блокирующий таймаут только для коннекта (не зависит от настроек)
@@ -221,6 +231,8 @@ class DCClient:
                 data = self.receive(timeout=self._connect_timeout, err_message=False)   # тут используем высокоуровневый метод
                 if not data is None:   # None означает, что команда уже была обработана в receive()
                     if data == '$GetPass':
+                        if not self.password and pass_callback:
+                            self.password = pass_callback()
                         if not self.password:
                             self.message_queue.mput(type=MSGERR, text="need a password")
                             return False
