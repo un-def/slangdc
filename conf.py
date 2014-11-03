@@ -16,7 +16,7 @@ class Config:
     }
 
     def __init__(self):
-        self.global_settings = self.load_settings()
+        self.settings = self.load_settings()
 
     def load_settings(self):
         save_it = False
@@ -46,5 +46,9 @@ class Config:
         settings_fo = open(self.settings_filename, 'w')
         json.dump(settings, settings_fo, indent=4, sort_keys=True)
         settings_fo.close()
+
+    def update_settings(self, settings):
+        self.settings = settings
+        self.save_settings(settings)
 
 

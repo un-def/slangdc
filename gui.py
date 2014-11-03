@@ -9,7 +9,6 @@ class TestGui(Frame):
 
     def __init__(self, root=None):
         Frame.__init__(self, root)
-        #self.settings_window = False
         self.root = root
         self.dc = None
         self.pack(expand=YES)
@@ -38,7 +37,7 @@ class TestGui(Frame):
             address = self.address_entry.get().strip()
             if address:
                 self.disconnect()   # отключимся, если уже подключены
-                self.dc = slangdc.DCClient(address=address, **config.global_settings)
+                self.dc = slangdc.DCClient(address=address, **config.settings)
                 PrintThread(self.dc).start()
                 DCThread(self.dc).start()
 
@@ -84,14 +83,42 @@ class SettingsWindow(Toplevel):
     def __init__(self, root=None):
         Toplevel.__init__(self, root)
         self.title("settings")
-        self.protocol('WM_DELETE_WINDOW', lambda: None)
-        Button(self, text="save", command=self.save).pack(side=LEFT)
-        Button(self, text="cancel", command=self.cancel).pack(side=LEFT)
+        self.protocol('WM_DELETE_WINDOW', self.close)
+        # (field_name, field_type, field_text)
+        fields = (
+            ('nick', 'str', 'nick'),
+            ('desc', 'str', 'description'),
+            ('email', 'str', 'e-mail'),
+            ('share', 'int', 'share'),
+            ('slots', 'int', 'slots'),
+            ('encoding', 'str', 'encoding'),
+            ('timeout', 'int', 'receive timeout')
+        )
+        self.entry_vars = {}
+        for field_name, field_type, field_text in fields:
+            row = Frame(self)
+            row.pack(expand=YES, fill=X)
+            Label(row, width=12, text=field_text, anchor=W).pack(side=LEFT)
+            self.entry_vars[field_name] = (StringVar(), field_type)
+            self.entry_vars[field_name][0].set(config.settings[field_name])
+            Entry(row, textvariable=self.entry_vars[field_name][0]).pack(expand=YES, fill=X, side=RIGHT)
+        Button(self, text="cancel", command=self.close).pack(side=RIGHT)
+        Button(self, text="save", command=self.save).pack(side=RIGHT)
 
     def save(self):
-        pass
+        new_settings = {}
+        for field_name, (entry_var, field_type) in self.entry_vars.items():
+            val = entry_var.get()
+            if field_type == 'int':
+                try:
+                    val = int(val)
+                except ValueError:   # валидации форм нет, поэтому вместо недопустимых значений берём дефолтные
+                    val = config.default_settings[field_name]
+            new_settings[field_name] = val
+        config.update_settings(new_settings)
+        self.close()
 
-    def cancel(self):
+    def close(self):
         self.destroy()
 
 
