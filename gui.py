@@ -1,17 +1,15 @@
 # -*-coding: UTF-8 -*-
 from tkinter import *
 import slangdc
+import conf
 from example import PrintThread, DCThread
 
 
 class TestGui(Frame):
 
     def __init__(self, parent=None):
-        self.settings = {
-            'address': 'allavtovo.ru',
-            'encoding': 'windows-1251',
-            'timeout': 900
-        }
+        self.settings = conf.load_settings()
+        self.settings['address'] = 'allavtovo.ru'
         self.dc = None
         Frame.__init__(self, parent)
         self.pack(expand=YES)
