@@ -47,11 +47,11 @@ class TestGui(Frame):
             if address:
                 self.disconnect()   # отключимся, если уже подключены
                 self.dc = slangdc.DCClient(address=address, **config.settings)
-                PrintThread(self.dc, self.chat).start()
+                ChatThread(self.dc, self.chat).start()
                 DCThread(self.dc, pass_callback=self.get_pass).start()
 
     def disconnect(self):
-        if self.dc:
+        if self.dc and self.dc.connected:
             self.dc.disconnect()
             self.dc = None
 
@@ -104,6 +104,7 @@ class Chat(Frame):
     def add_string(self, string):
         string = string.replace('\r', '')
         self.chat.insert(END, string + '\n')
+        self.chat.see(END)
 
 
 class SettingsWindow(Toplevel):
@@ -177,18 +178,15 @@ class PassWindow(Toplevel):
             self.destroy()
 
 
-class PrintThread(threading.Thread):
-
-    disconnect_countdown = 10
+class ChatThread(threading.Thread):
 
     def __init__(self, dc, chat):
         self.dc = dc
         self.chat = chat
-        threading.Thread.__init__(self)
+        threading.Thread.__init__(self, name=self.__class__.__name__, daemon=True)
 
     def run(self):
-        counter = self.disconnect_countdown
-        while self.dc.socket or counter:   # workaround, чтобы автоматически прибить тред после отключения (удаления сокета), но при этом забрать последнее сообщение (-ия) ("disconnect")
+        while True:
             message = self.dc.message_queue.mget()
             if message:
                 if message['type'] == slangdc.MSGCHAT:
@@ -216,8 +214,8 @@ class PrintThread(threading.Thread):
                     pref = "***"
                 timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
                 self.chat.add_string("{0} {1} {2}".format(timestamp, pref, message['text']))
-            if not self.dc.socket:
-                counter -= 1
+                if message['type'] == slangdc.MSGINFO and message['text'] == 'disconnected':
+                    break
             time.sleep(0.01)
 
 
@@ -226,7 +224,7 @@ class DCThread(threading.Thread):
     def __init__(self, dc, pass_callback=None):
         self.dc = dc
         self.pass_callback=pass_callback
-        threading.Thread.__init__(self)
+        threading.Thread.__init__(self, name=self.__class__.__name__)
 
     def run(self):
         self.dc.connect(get_nicks=True, pass_callback=self.pass_callback)
