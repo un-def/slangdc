@@ -1,10 +1,10 @@
 # -*-coding: UTF-8 -*-
 import time
 import threading
+from datetime import datetime
 from tkinter import *
 import slangdc
 import conf
-from example import PrintThread
 
 
 class TestGui(Frame):
@@ -13,26 +13,27 @@ class TestGui(Frame):
         Frame.__init__(self, root)
         self.root = root
         self.dc = None
-        self.pack(expand=YES)
-        self.make_widgets()
-
-    def make_widgets(self):
+        self.pack(expand=YES, fill=BOTH)
+        # address entry, connect, disconnect, settings, quit buttons
         ftop = Frame(self)
-        ftop.pack()
+        ftop.pack(side=TOP, fill=X)
         self.address_entry = Entry(ftop)
         self.address_entry.insert(0, 'allavtovo.ru')
         self.address_entry.pack(side=LEFT)
         self.address_entry.bind('<Return>', self.connect)
         Button(ftop, text="connect", command=self.connect).pack(side=LEFT)
         Button(ftop, text="disconnect", command=self.disconnect).pack(side=LEFT)
-        Button(ftop, text="settings", command=self.show_settings).pack(side=LEFT)
-        Button(ftop, text="quit", command=self.quit).pack(side=LEFT)
+        Button(ftop, text="quit", command=self.quit).pack(side=RIGHT)
+        Button(ftop, text="settings", command=self.show_settings).pack(side=RIGHT)
+        # message entry, send button
         fbottom = Frame(self)
-        fbottom.pack()
+        fbottom.pack(side=BOTTOM, fill=X)
         self.msg_entry = Entry(fbottom, width=50)
-        self.msg_entry.pack(side=LEFT)
+        self.msg_entry.pack(side=LEFT, expand=YES, fill=X)
         self.msg_entry.bind('<Return>', self.send)
-        Button(fbottom, text="send", command=self.send).pack(side=LEFT)
+        Button(fbottom, text="send", command=self.send).pack(side=RIGHT)
+        # chat
+        self.chat = Chat(self, side=TOP)
 
     def get_pass(self):
         pass_window = PassWindow(self.root)
@@ -46,7 +47,7 @@ class TestGui(Frame):
             if address:
                 self.disconnect()   # отключимся, если уже подключены
                 self.dc = slangdc.DCClient(address=address, **config.settings)
-                PrintThread(self.dc).start()
+                PrintThread(self.dc, self.chat).start()
                 DCThread(self.dc, pass_callback=self.get_pass).start()
 
     def disconnect(self):
@@ -85,6 +86,24 @@ class TestGui(Frame):
                 elif not etext.startswith('/') or etext.startswith('/me '):
                     self.dc.chat_send(etext)
                 self.msg_entry.delete(0, END)
+
+
+class Chat(Frame):
+
+    def __init__(self, parent=None, side=TOP):
+        Frame.__init__(self, parent)
+        self.pack(expand=YES, fill=BOTH, side=side)
+        scroll = Scrollbar(self)
+        chat = Text(self)
+        scroll.config(command=chat.yview)
+        chat.config(yscrollcommand=scroll.set)
+        scroll.pack(side=RIGHT, fill=Y)
+        chat.pack(side=LEFT, expand=YES, fill=BOTH)
+        self.chat = chat
+
+    def add_string(self, string):
+        string = string.replace('\r', '')
+        self.chat.insert(END, string + '\n')
 
 
 class SettingsWindow(Toplevel):
@@ -158,6 +177,50 @@ class PassWindow(Toplevel):
             self.destroy()
 
 
+class PrintThread(threading.Thread):
+
+    disconnect_countdown = 10
+
+    def __init__(self, dc, chat):
+        self.dc = dc
+        self.chat = chat
+        threading.Thread.__init__(self)
+
+    def run(self):
+        counter = self.disconnect_countdown
+        while self.dc.socket or counter:   # workaround, чтобы автоматически прибить тред после отключения (удаления сокета), но при этом забрать последнее сообщение (-ия) ("disconnect")
+            message = self.dc.message_queue.mget()
+            if message:
+                if message['type'] == slangdc.MSGCHAT:
+                    if not message['me']:
+                        pref = "<" + message['nick'] + ">"
+                    else:
+                        pref = "* " + message['nick']
+                elif message['type'] == slangdc.MSGPM:
+                    if 'sender' in message:   # если это входящее сообщение
+                        pref = "PM from " + message['sender'] + ":"
+                        if message['nick']:
+                            if not message['me']:
+                                pref = pref + " <" + message['nick'] + ">"
+                            else:
+                                pref = pref + " * " + message['nick']
+                    else:   # если исходящее сообщение
+                        pref = "PM to " + message['recipient'] + ":"
+                        if not message['me']:
+                            pref = pref + " <" + self.dc.nick + ">"
+                        else:
+                            pref = pref + " * " + self.dc.nick
+                elif message['type'] == slangdc.MSGERR:
+                    pref = "xxx"
+                else:
+                    pref = "***"
+                timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
+                self.chat.add_string("{0} {1} {2}".format(timestamp, pref, message['text']))
+            if not self.dc.socket:
+                counter -= 1
+            time.sleep(0.01)
+
+
 class DCThread(threading.Thread):
 
     def __init__(self, dc, pass_callback=None):
@@ -174,7 +237,6 @@ class DCThread(threading.Thread):
 config = conf.Config()
 root = Tk()
 root.title("slangdc.Tk")
-root.resizable(width=FALSE, height=FALSE)
 gui = TestGui(root)
 root.protocol('WM_DELETE_WINDOW', gui.quit)
 root.mainloop()
