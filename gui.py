@@ -94,7 +94,7 @@ class Chat(Frame):
         Frame.__init__(self, parent)
         self.pack(expand=YES, fill=BOTH, side=side)
         scroll = Scrollbar(self)
-        chat = Text(self)
+        chat = Text(self, font='TkTextFont', wrap=WORD, state=DISABLED)
         scroll.config(command=chat.yview)
         chat.config(yscrollcommand=scroll.set)
         scroll.pack(side=RIGHT, fill=Y)
@@ -103,7 +103,9 @@ class Chat(Frame):
 
     def add_string(self, string):
         string = string.replace('\r', '')
+        self.chat.config(state=NORMAL)
         self.chat.insert(END, string + '\n')
+        self.chat.config(state=DISABLED)
         self.chat.see(END)
 
 
