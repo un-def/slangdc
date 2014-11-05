@@ -115,6 +115,7 @@ class Chat(Frame):
         for tag in ('nick', 'op_nick', 'bot_nick'):
             chat.tag_bind(tag, '<Double-1>', lambda e: print(e))
         self.chat = chat
+        self.first_line = True   # используем флаг вместо извлечения текста из виджета
         self.lock = threading.RLock()
 
     def add_string(self, str_list):
@@ -124,10 +125,13 @@ class Chat(Frame):
         with self.lock:
             self.chat.config(state=NORMAL)
             str_list_iter = iter(str_list)   # fuck tha itertools!
+            if self.first_line:
+                self.first_line = False
+            else:
+                self.chat.insert(END, '\n', 'text')
             for tag in str_list_iter:
                 text = next(str_list_iter)
                 self.chat.insert(END, text, tag)
-            self.chat.insert(END, '\n', 'text')
             self.chat.config(state=DISABLED)
             self.chat.see(END)
 
