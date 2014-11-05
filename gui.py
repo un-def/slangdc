@@ -1,5 +1,6 @@
 # -*-coding: UTF-8 -*-
 import time
+import re
 import threading
 from datetime import datetime
 from tkinter import *
@@ -33,13 +34,19 @@ class TestGui(Frame):
         self.msg_entry.bind('<Return>', self.send)
         Button(fbottom, text="send", command=self.send).pack(side=RIGHT)
         # chat
-        self.chat = Chat(self, side=TOP)
+        self.chat = Chat(self, side=TOP, doubleclick_callback=self.insert_nick)
 
     def get_pass(self):
         pass_window = PassWindow(self.root)
         time.sleep(0.1)   # по непонятной причине без этого костыля окно пароля блокируется почти всегда
         pass_window.wait_window()
         return pass_window.password.get()
+
+    def insert_nick(self, check_nick):
+        if self.dc and self.dc.nicklist:
+            if check_nick in self.dc.nicklist:
+               self.msg_entry.insert(INSERT, check_nick + ': ')
+               return True
 
     def connect(self, event=None):
         if not self.dc or not self.dc.connecting:   # если ещё не подключались или не подключаемся в данный момент
@@ -91,7 +98,7 @@ class TestGui(Frame):
 
 class Chat(Frame):
 
-    def __init__(self, parent=None, side=TOP):
+    def __init__(self, parent=None, side=TOP, doubleclick_callback=None):
         Frame.__init__(self, parent)
         self.pack(expand=YES, fill=BOTH, side=side)
         scroll = Scrollbar(self)
@@ -112,11 +119,45 @@ class Chat(Frame):
         chat.tag_config('bot_nick', font=font_bold, foreground='red')
         chat.tag_config('error', font=font_normal, foreground="red")
         chat.tag_config('info', font=font_normal, foreground="blue")
-        for tag in ('nick', 'op_nick', 'bot_nick'):
-            chat.tag_bind(tag, '<Double-1>', lambda e: print(e))
+        # http://stackoverflow.com/questions/9957810/how-do-you-modify-the-current-selection-length-in-a-tkinter-text-widget
+        chat.bind('<Double-1>', lambda e: self.after(20, self.doubleclick))
         self.chat = chat
+        self.doubleclick_callback = doubleclick_callback
         self.first_line = True   # используем флаг вместо извлечения текста из виджета
         self.lock = threading.RLock()
+
+    def doubleclick(self, event=None):
+        ''' пытается извлечь из выделенного по двойному клику текста и его
+            окружения ник:
+            при клике в строке '<user.nick> text' по 'nick' будет выделен
+            только фрагмент 'nick' ("слово" в понимании Tk)
+            метод проверяет окружающий текст, извлекает часть, похожую на ник
+            и передаёт её коллбэку, указанному при инициализации Chat
+            коллбэк должен вернуть True, если есть пользователь с таким ником,
+            в этом случае метод выделит ник ('user.nick')
+        '''
+        line_begin, col_begin = self.chat.index('sel.first').split('.')
+        line_end, col_end = self.chat.index('sel.last').split('.')
+        if line_begin == line_end:   # только если выделена одна строка
+            line = line_begin
+            full_line = self.chat.get(line + '.0', line + '.end')
+            col_begin = int(col_begin)
+            col_end = int(col_end)
+            sel = full_line[col_begin:col_end]
+            if col_begin:
+                before_line = re.search('[^ \r\n\t\<]+$', full_line[:col_begin])
+                if before_line:
+                    sel = before_line.group(0) + sel
+                    col_begin = col_begin - len(before_line.group(0))
+            if col_end < len(full_line):
+                after_line = re.search('^[^ \r\n\t\:,\>]+', full_line[col_end:])
+                if after_line:
+                    sel = sel + after_line.group(0)
+                    col_end = col_end + len(after_line.group(0))
+            if self.doubleclick_callback:
+                is_nick = self.doubleclick_callback(sel)
+                if is_nick:
+                    self.chat.tag_add('sel', '{}.{}'.format(line, col_begin), '{}.{}'.format(line, col_end))
 
     def add_string(self, str_list):
         ''' str_list - одна строка в виде списка/кортежа
