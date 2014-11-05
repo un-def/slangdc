@@ -43,7 +43,7 @@ class TestGui(Frame):
         return pass_window.password.get()
 
     def insert_nick(self, check_nick):
-        if self.dc and self.dc.nicklist:
+        if self.dc and check_nick != self.dc.nick and self.dc.nicklist:
             if check_nick in self.dc.nicklist:
                self.msg_entry.insert(INSERT, check_nick + ': ')
                return True
