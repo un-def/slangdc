@@ -47,8 +47,9 @@ class TestGui(Frame):
             if address:
                 self.disconnect()   # отключимся, если уже подключены
                 self.dc = slangdc.DCClient(address=address, **config.settings)
-                ChatThread(self.dc, self.chat).start()
-                DCThread(self.dc, pass_callback=self.get_pass).start()
+                chat_thread = ChatThread(self.dc, self.chat)
+                chat_thread.start()
+                DCThread(self.dc, pass_callback=self.get_pass, onclose=chat_thread.close).start()
 
     def disconnect(self):
         if self.dc and self.dc.connected:
@@ -185,10 +186,12 @@ class ChatThread(threading.Thread):
     def __init__(self, dc, chat):
         self.dc = dc
         self.chat = chat
+        self._close = False
         threading.Thread.__init__(self, name=self.__class__.__name__, daemon=True)
 
     def run(self):
-        while True:
+        counter = 50
+        while not self._close or counter:
             message = self.dc.message_queue.mget()
             if message:
                 if message['type'] == slangdc.MSGCHAT:
@@ -216,22 +219,28 @@ class ChatThread(threading.Thread):
                     pref = "***"
                 timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
                 self.chat.add_string("{0} {1} {2}".format(timestamp, pref, message['text']))
-                if message['type'] == slangdc.MSGINFO and message['text'] == 'disconnected':
-                    break
+            if self._close:
+                counter -= 1
             time.sleep(0.01)
+
+    def close(self):
+        self._close = True
 
 
 class DCThread(threading.Thread):
 
-    def __init__(self, dc, pass_callback=None):
+    def __init__(self, dc, pass_callback=None, onclose=None):   # onclose - коллбэк, вызываемый при завершении треда (прибиваем другой тред)
         self.dc = dc
         self.pass_callback=pass_callback
+        self.onclose = onclose
         threading.Thread.__init__(self, name=self.__class__.__name__)
 
     def run(self):
         self.dc.connect(get_nicks=True, pass_callback=self.pass_callback)
         while self.dc.connected:
             self.dc.receive(raise_exc=False)
+        if self.onclose:
+            self.onclose()
 
 
 config = conf.Config()
