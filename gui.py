@@ -95,19 +95,41 @@ class Chat(Frame):
         Frame.__init__(self, parent)
         self.pack(expand=YES, fill=BOTH, side=side)
         scroll = Scrollbar(self)
-        chat = Text(self, font='TkTextFont', wrap=WORD, state=DISABLED)
+        font_family = 'Helvetica'
+        font_size = 12
+        font_normal = (font_family, font_size, 'normal')
+        font_bold = (font_family, font_size, 'bold')
+        chat = Text(self, wrap=WORD, state=DISABLED)
         scroll.config(command=chat.yview)
         chat.config(yscrollcommand=scroll.set)
         scroll.pack(side=RIGHT, fill=Y)
         chat.pack(side=LEFT, expand=YES, fill=BOTH)
+        chat.tag_config('timestamp', font=font_normal, foreground='gray')
+        chat.tag_config('text', font=font_normal, foreground='black')
+        chat.tag_config('nick', font=font_bold, foreground='black')
+        chat.tag_config('own_nick', font=font_bold, foreground='green')
+        chat.tag_config('op_nick', font=font_bold, foreground='red')
+        chat.tag_config('bot_nick', font=font_bold, foreground='red')
+        chat.tag_config('error', font=font_normal, foreground="red")
+        chat.tag_config('info', font=font_normal, foreground="blue")
+        for tag in ('nick', 'op_nick', 'bot_nick'):
+            chat.tag_bind(tag, '<Double-1>', lambda e: print(e))
         self.chat = chat
+        self.lock = threading.RLock()
 
-    def add_string(self, string):
-        string = string.replace('\r', '')
-        self.chat.config(state=NORMAL)
-        self.chat.insert(END, string + '\n')
-        self.chat.config(state=DISABLED)
-        self.chat.see(END)
+    def add_string(self, str_list):
+        ''' str_list - одна строка в виде списка/кортежа
+            (tag1, text1, tag2, text2, ...)
+        '''
+        with self.lock:
+            self.chat.config(state=NORMAL)
+            str_list_iter = iter(str_list)   # fuck tha itertools!
+            for tag in str_list_iter:
+                text = next(str_list_iter)
+                self.chat.insert(END, text, tag)
+            self.chat.insert(END, '\n', 'text')
+            self.chat.config(state=DISABLED)
+            self.chat.see(END)
 
 
 class SettingsWindow(Toplevel):
@@ -194,31 +216,32 @@ class ChatThread(threading.Thread):
         while not self._close or counter:
             message = self.dc.message_queue.mget()
             if message:
+                message['text'] = message['text'].replace('\r', '')
                 if message['type'] == slangdc.MSGCHAT:
+                    nick_tag = 'nick'
+                    if message['nick'] == self.dc.nick:
+                        nick_tag = 'own_nick'
+                    elif self.dc.nicklist:
+                        if message['nick'] in self.dc.nicklist.ops:
+                            nick_tag = 'op_nick'
+                        elif message['nick'] in self.dc.nicklist.bots:
+                            nick_tag = 'bot_nick'
                     if not message['me']:
-                        pref = "<" + message['nick'] + ">"
+                        msg = ('text', "<", nick_tag, message['nick'], 'text', "> " + message['text'])
                     else:
-                        pref = "* " + message['nick']
+                        msg = ('text', "* ", nick_tag, message['nick'], 'text', " " + message['text'])
                 elif message['type'] == slangdc.MSGPM:
                     if 'sender' in message:   # если это входящее сообщение
-                        pref = "PM from " + message['sender'] + ":"
-                        if message['nick']:
-                            if not message['me']:
-                                pref = pref + " <" + message['nick'] + ">"
-                            else:
-                                pref = pref + " * " + message['nick']
+                        pref = "PM from " + message['sender']
                     else:   # если исходящее сообщение
-                        pref = "PM to " + message['recipient'] + ":"
-                        if not message['me']:
-                            pref = pref + " <" + self.dc.nick + ">"
-                        else:
-                            pref = pref + " * " + self.dc.nick
+                        pref = "PM to " + message['recipient']
+                    msg = ('info', pref)
                 elif message['type'] == slangdc.MSGERR:
-                    pref = "xxx"
+                    msg = ('error', "*** " + message['text'])
                 else:
-                    pref = "***"
-                timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
-                self.chat.add_string("{0} {1} {2}".format(timestamp, pref, message['text']))
+                    msg = ('info', "*** " + message['text'])
+                timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
+                self.chat.add_string(('timestamp', timestamp) + msg)
             if self._close:
                 counter -= 1
             time.sleep(0.01)
