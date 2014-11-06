@@ -41,7 +41,6 @@ class Gui:
 
     def get_pass(self):
         pass_window = PassWindow(self.root)
-        time.sleep(0.1)   # по непонятной причине без этого костыля окно пароля блокируется почти всегда
         pass_window.wait_window()
         return pass_window.password.get()
 
