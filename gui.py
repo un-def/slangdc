@@ -130,12 +130,14 @@ class Gui:
                 else:
                     msg = ('info', "*** " + message['text'])
                 timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
-                self.chat.add_string(('timestamp', timestamp) + msg)
+                self.chat.add_message(('timestamp', timestamp) + msg)
         if message_queue:
             self.root.after(10, self.run_chat_loop, message_queue)
 
 
 class Chat(Frame):
+
+    max_lines = 500
 
     def __init__(self, parent=None, side=TOP, doubleclick_callback=None):
         Frame.__init__(self, parent)
@@ -145,6 +147,12 @@ class Chat(Frame):
         font_size = 12
         font_normal = (font_family, font_size, 'normal')
         font_bold = (font_family, font_size, 'bold')
+        tool_frame = Frame(self)
+        tool_frame.pack(side=BOTTOM, fill=X)
+        Button(tool_frame, text='clear chat', command=self.clear).pack(side=LEFT)
+        self.autoscroll = IntVar()
+        self.autoscroll.set(1)
+        Checkbutton(tool_frame, text='autoscroll', variable=self.autoscroll).pack(side=LEFT)
         chat = Text(self, wrap=WORD, state=DISABLED)
         scroll.config(command=chat.yview)
         chat.config(yscrollcommand=scroll.set)
@@ -161,8 +169,8 @@ class Chat(Frame):
         # http://stackoverflow.com/questions/9957810/how-do-you-modify-the-current-selection-length-in-a-tkinter-text-widget
         chat.bind('<Double-1>', lambda e: self.after(20, self.doubleclick))
         self.chat = chat
+        self.empty = True
         self.doubleclick_callback = doubleclick_callback
-        self.first_line = True   # используем флаг вместо извлечения текста из виджета
         self.lock = threading.RLock()
 
     def doubleclick(self, event=None):
@@ -207,22 +215,34 @@ class Chat(Frame):
                 if is_nick:
                     self.chat.tag_add('sel', '{}.{}'.format(line, col_begin), '{}.{}'.format(line, col_end))
 
-    def add_string(self, str_list):
-        ''' str_list - одна строка в виде списка/кортежа
+    def add_message(self, msg_list):
+        ''' msg_list - одно сообщение в виде списка/кортежа
             (tag1, text1, tag2, text2, ...)
         '''
         with self.lock:
             self.chat.config(state=NORMAL)
-            str_list_iter = iter(str_list)   # fuck tha itertools!
-            if self.first_line:
-                self.first_line = False
+            if self.empty:
+                self.empty = False
             else:
                 self.chat.insert(END, '\n', 'text')
-            for tag in str_list_iter:
-                text = next(str_list_iter)
+            msg_list_iter = iter(msg_list)   # fuck tha itertools!
+            for tag in msg_list_iter:
+                text = next(msg_list_iter)
                 self.chat.insert(END, text, tag)
+            chat_lines = int(self.chat.index('end-1c').split('.')[0])
+            if chat_lines > self.max_lines:
+                del_to = str(chat_lines-self.max_lines+1) + '.0'
+                self.chat.delete('1.0', del_to)
             self.chat.config(state=DISABLED)
-            self.chat.see(END)
+            if self.autoscroll.get():
+                self.chat.see(END)
+
+    def clear(self):
+        with self.lock:
+            self.chat.config(state=NORMAL)
+            self.chat.delete('1.0', END)
+            self.chat.config(state=DISABLED)
+            self.empty = True
 
 
 class SettingsWindow(Toplevel):
