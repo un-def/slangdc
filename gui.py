@@ -13,6 +13,7 @@ class Gui:
     def __init__(self, root=None):
         self.root = root
         self.dc = None
+        self.chat_addr_sep = ':'   # разделитель при обращении к пользователю в чате
         main_frame = Frame(root)
         main_frame.pack(expand=YES, fill=BOTH)
         # address entry, connect, disconnect, settings, quit buttons
@@ -48,8 +49,9 @@ class Gui:
         if self.dc and check_nick != self.dc.nick and self.dc.nicklist:
             if check_nick in self.dc.nicklist:
                 if self.msg_entry.index('insert') == 0:   # если курсор стоит в начале поля ввода,
-                    check_nick += ': '   # то вставляем ник как обращение
+                    check_nick = check_nick + self.chat_addr_sep + ' '   # то вставляем ник как обращение
                 self.msg_entry.insert('insert', check_nick)
+                self.msg_entry.focus_set()
                 return True
 
     def connect(self, event=None):
