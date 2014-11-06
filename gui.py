@@ -8,33 +8,35 @@ import slangdc
 import conf
 
 
-class TestGui(Frame):
+class Gui:
 
     def __init__(self, root=None):
-        Frame.__init__(self, root)
         self.root = root
         self.dc = None
-        self.pack(expand=YES, fill=BOTH)
+        main_frame = Frame(root)
+        main_frame.pack(expand=YES, fill=BOTH)
         # address entry, connect, disconnect, settings, quit buttons
-        ftop = Frame(self)
+        ftop = Frame(main_frame)
         ftop.pack(side=TOP, fill=X)
-        self.address_entry = Entry(ftop)
-        self.address_entry.insert(0, 'allavtovo.ru')
-        self.address_entry.pack(side=LEFT)
-        self.address_entry.bind('<Return>', self.connect)
+        address_entry = Entry(ftop)
+        address_entry.insert(0, 'allavtovo.ru')
+        address_entry.pack(side=LEFT)
+        address_entry.bind('<Return>', self.connect)
+        self.address_entry = address_entry
         Button(ftop, text="connect", command=self.connect).pack(side=LEFT)
         Button(ftop, text="disconnect", command=self.disconnect).pack(side=LEFT)
         Button(ftop, text="quit", command=self.quit).pack(side=RIGHT)
         Button(ftop, text="settings", command=self.show_settings).pack(side=RIGHT)
         # message entry, send button
-        fbottom = Frame(self)
+        fbottom = Frame(main_frame)
         fbottom.pack(side=BOTTOM, fill=X)
-        self.msg_entry = Entry(fbottom, width=50)
-        self.msg_entry.pack(side=LEFT, expand=YES, fill=X)
-        self.msg_entry.bind('<Return>', self.send)
+        msg_entry = Entry(fbottom, width=50)
+        msg_entry.pack(side=LEFT, expand=YES, fill=X)
+        msg_entry.bind('<Return>', self.send)
+        self.msg_entry = msg_entry
         Button(fbottom, text="send", command=self.send).pack(side=RIGHT)
         # chat
-        self.chat = Chat(self, side=TOP, doubleclick_callback=self.insert_nick)
+        self.chat = Chat(main_frame, side=TOP, doubleclick_callback=self.insert_nick)
 
     def get_pass(self):
         pass_window = PassWindow(self.root)
@@ -65,7 +67,7 @@ class TestGui(Frame):
 
     def quit(self):
         self.disconnect()
-        self.__class__.__base__.quit(self)   # можно и просто Frame.quit(self)
+        self.root.quit()
 
     def show_settings(self):
         try:
@@ -314,6 +316,6 @@ class DCThread(threading.Thread):
 config = conf.Config()
 root = Tk()
 root.title("slangdc.Tk")
-gui = TestGui(root)
+gui = Gui(root)
 root.protocol('WM_DELETE_WINDOW', gui.quit)
 root.mainloop()
