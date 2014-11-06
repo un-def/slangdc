@@ -59,7 +59,7 @@ class Gui:
             if address:
                 self.disconnect()   # отключимся, если уже подключены
                 self.dc = slangdc.DCClient(address=address, **config.settings)
-                self.run_chat_loop(self.dc.message_queue)
+                self.run_chat_loop(self.dc)
                 DCThread(self.dc, pass_callback=self.get_pass).start()
 
     def disconnect(self):
@@ -99,21 +99,27 @@ class Gui:
                     self.dc.chat_send(etext)
                 self.msg_entry.delete(0, END)
 
-    def run_chat_loop(self, message_queue):
-        message = message_queue.mget()
+    def run_chat_loop(self, dc):
+        ''' небольшой трюк - ссылку на инстанс DCClient передаём не через
+            атрибуты (self.dc), а через аргумент функции; после дисконнекта
+            (self.dc = None) инстанс продолжит существовать, пока передаётся
+            ссылка на него (т.е. пока не заберём все сообщения из очереди и
+            не завершим chat_loop)
+        '''
+        message = dc.message_queue.mget()
         if message:
             if message['type'] == slangdc.MSGEND:
-                message_queue = False
+                return
             else:
                 message['text'] = message['text'].replace('\r', '')
                 if message['type'] == slangdc.MSGCHAT:
                     nick_tag = 'nick'
-                    if message['nick'] == self.dc.nick:
+                    if message['nick'] == dc.nick:
                         nick_tag = 'own_nick'
-                    elif self.dc.nicklist:
-                        if message['nick'] in self.dc.nicklist.ops:
+                    elif dc.nicklist:
+                        if message['nick'] in dc.nicklist.ops:
                             nick_tag = 'op_nick'
-                        elif message['nick'] in self.dc.nicklist.bots:
+                        elif message['nick'] in dc.nicklist.bots:
                             nick_tag = 'bot_nick'
                     if not message['me']:
                         msg = ('text', "<", nick_tag, message['nick'], 'text', "> " + message['text'])
@@ -131,8 +137,7 @@ class Gui:
                     msg = ('info', "*** " + message['text'])
                 timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
                 self.chat.add_message(('timestamp', timestamp) + msg)
-        if message_queue:
-            self.root.after(10, self.run_chat_loop, message_queue)
+        self.root.after(10, self.run_chat_loop, dc)
 
 
 class Chat(Frame):
