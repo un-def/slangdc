@@ -9,10 +9,11 @@ from threading import RLock
 
 version = '0.1.0'
 
-MSGINFO = 0
-MSGERR = 1
-MSGCHAT = 2
-MSGPM = 3
+MSGEND = 0
+MSGINFO = 1
+MSGERR = 2
+MSGCHAT = 3
+MSGPM = 4
 
 def dcescape(text):
     return text.replace('$', '&#36;').replace('|', '&#124;')
@@ -84,6 +85,11 @@ class MsgQueue(queue.Queue):
 
                 исходящее сообщение:
                 mput(type=MSGPM, recipient='…', text='…', me=False|True)
+
+            MSGEND:
+                mput(type=MSGEND)
+                маркер последнего сообщения в очереди (т.е. больше туда ничего
+                записано не будет - при дисконнекте, ошибке сокета, и т.п.)
         """
         item['time'] = time.time()
         self.put(item, block=False)
@@ -271,11 +277,12 @@ class DCClient:
             self.connected = _connect(self)
         except DCSocketError as err:
             self.message_queue.mput(type=MSGERR, text="[socket] {0}".format(err))
+            self.connected = False
+        if not self.connected:
+            self.socket_close()
+            self.message_queue.mput(type=MSGEND)
         else:
-            if not self.connected:
-                self.socket_close()
-            else:
-                self.message_queue.mput(type=MSGINFO, text="connected")
+            self.message_queue.mput(type=MSGINFO, text="connected")
         self.connecting = False
         return self.connected
 
@@ -289,6 +296,7 @@ class DCClient:
         self.connected = False
         self.socket_close()
         self.message_queue.mput(type=MSGINFO, text="disconnected")
+        self.message_queue.mput(type=MSGEND)
 
     def recv(self, timeout=None, encoding=None):
         """ recv([encoding=False|'enc'])
@@ -403,6 +411,7 @@ class DCClient:
         except DCSocketError as err:
             if err_message:
                 self.message_queue.mput(type=MSGERR, text="[socket] {0}".format(err))
+                self.message_queue.mput(type=MSGEND)
             if raise_exc:
                 raise DCSocketError(str(err))
             else:
