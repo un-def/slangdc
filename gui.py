@@ -210,15 +210,15 @@ class SettingsWindow(Toplevel):
             ('timeout', 'int', 'receive timeout')
         )
         self.entry_vars = {}
-        for field_name, field_type, field_text in fields:
-            row = Frame(self)
-            row.pack(expand=YES, fill=X)
-            Label(row, width=12, text=field_text, anchor=W).pack(side=LEFT)
+        grid_frame = Frame(self)
+        grid_frame.pack(padx=5, pady=5)
+        for row, (field_name, field_type, field_text) in enumerate(fields):
             self.entry_vars[field_name] = (StringVar(), field_type)
             self.entry_vars[field_name][0].set(config.settings[field_name])
-            Entry(row, textvariable=self.entry_vars[field_name][0]).pack(expand=YES, fill=X, side=RIGHT)
-        Button(self, text="cancel", command=self.close).pack(side=RIGHT)
-        Button(self, text="save", command=self.save).pack(side=RIGHT)
+            Label(grid_frame, width=12, text=field_text, anchor=W).grid(row=row, column=0)
+            Entry(grid_frame, width=20, textvariable=self.entry_vars[field_name][0]).grid(row=row, column=1)
+        Button(self, text="cancel", width=8, command=self.close).pack(side=RIGHT, padx=5, pady=3)
+        Button(self, text="save", width=8, command=self.save).pack(side=RIGHT)
 
     def save(self):
         new_settings = {}
