@@ -59,8 +59,7 @@ class Gui:
             if address:
                 self.disconnect()   # отключимся, если уже подключены
                 self.dc = slangdc.DCClient(address=address, **config.settings)
-                chat_thread = ChatThread(self.dc, self.chat)
-                chat_thread.start()
+                self.run_chat_loop(self.dc.message_queue)
                 DCThread(self.dc, pass_callback=self.get_pass).start()
 
     def disconnect(self):
@@ -99,6 +98,41 @@ class Gui:
                 elif not etext.startswith('/') or etext.startswith('/me '):
                     self.dc.chat_send(etext)
                 self.msg_entry.delete(0, END)
+
+    def run_chat_loop(self, message_queue):
+        message = message_queue.mget()
+        if message:
+            if message['type'] == slangdc.MSGEND:
+                message_queue = False
+            else:
+                message['text'] = message['text'].replace('\r', '')
+                if message['type'] == slangdc.MSGCHAT:
+                    nick_tag = 'nick'
+                    if message['nick'] == self.dc.nick:
+                        nick_tag = 'own_nick'
+                    elif self.dc.nicklist:
+                        if message['nick'] in self.dc.nicklist.ops:
+                            nick_tag = 'op_nick'
+                        elif message['nick'] in self.dc.nicklist.bots:
+                            nick_tag = 'bot_nick'
+                    if not message['me']:
+                        msg = ('text', "<", nick_tag, message['nick'], 'text', "> " + message['text'])
+                    else:
+                        msg = ('text', "* ", nick_tag, message['nick'], 'text', " " + message['text'])
+                elif message['type'] == slangdc.MSGPM:
+                    if 'sender' in message:   # если это входящее сообщение
+                        pref = "PM from " + message['sender']
+                    else:   # если исходящее сообщение
+                        pref = "PM to " + message['recipient']
+                    msg = ('info', pref)
+                elif message['type'] == slangdc.MSGERR:
+                    msg = ('error', "*** " + message['text'])
+                else:
+                    msg = ('info', "*** " + message['text'])
+                timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
+                self.chat.add_string(('timestamp', timestamp) + msg)
+        if message_queue:
+            self.root.after(10, self.run_chat_loop, message_queue)
 
 
 class Chat(Frame):
@@ -260,48 +294,6 @@ class PassWindow(Toplevel):
     def confirm(self, event=None):
         if self.password.get():
             self.destroy()
-
-
-class ChatThread(threading.Thread):
-
-    def __init__(self, dc, chat):
-        self.dc = dc
-        self.chat = chat
-        threading.Thread.__init__(self, name=self.__class__.__name__, daemon=True)
-
-    def run(self):
-        while True:
-            message = self.dc.message_queue.mget()
-            if message:
-                if message['type'] == slangdc.MSGEND:
-                    break
-                message['text'] = message['text'].replace('\r', '')
-                if message['type'] == slangdc.MSGCHAT:
-                    nick_tag = 'nick'
-                    if message['nick'] == self.dc.nick:
-                        nick_tag = 'own_nick'
-                    elif self.dc.nicklist:
-                        if message['nick'] in self.dc.nicklist.ops:
-                            nick_tag = 'op_nick'
-                        elif message['nick'] in self.dc.nicklist.bots:
-                            nick_tag = 'bot_nick'
-                    if not message['me']:
-                        msg = ('text', "<", nick_tag, message['nick'], 'text', "> " + message['text'])
-                    else:
-                        msg = ('text', "* ", nick_tag, message['nick'], 'text', " " + message['text'])
-                elif message['type'] == slangdc.MSGPM:
-                    if 'sender' in message:   # если это входящее сообщение
-                        pref = "PM from " + message['sender']
-                    else:   # если исходящее сообщение
-                        pref = "PM to " + message['recipient']
-                    msg = ('info', pref)
-                elif message['type'] == slangdc.MSGERR:
-                    msg = ('error', "*** " + message['text'])
-                else:
-                    msg = ('info', "*** " + message['text'])
-                timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
-                self.chat.add_string(('timestamp', timestamp) + msg)
-            time.sleep(0.01)
 
 
 class DCThread(threading.Thread):
