@@ -47,8 +47,10 @@ class Gui:
     def insert_nick(self, check_nick):
         if self.dc and check_nick != self.dc.nick and self.dc.nicklist:
             if check_nick in self.dc.nicklist:
-               self.msg_entry.insert(INSERT, check_nick + ': ')
-               return True
+                if self.msg_entry.index('insert') == 0:   # если курсор стоит в начале поля ввода,
+                    check_nick += ': '   # то вставляем ник как обращение
+                self.msg_entry.insert('insert', check_nick)
+                return True
 
     def connect(self, event=None):
         if not self.dc or not self.dc.connecting:   # если ещё не подключались или не подключаемся в данный момент
@@ -137,6 +139,8 @@ class Chat(Frame):
             и передаёт её коллбэку, указанному при инициализации Chat
             коллбэк должен вернуть True, если есть пользователь с таким ником,
             в этом случае метод выделит ник ('user.nick')
+            NB: на некоторых системах при клике выделяется весь текст между
+            whitespace ('<user.nick>'), в этом случае используем воркэраунд
         '''
         line_begin, col_begin = self.chat.index('sel.first').split('.')
         line_end, col_end = self.chat.index('sel.last').split('.')
@@ -146,16 +150,23 @@ class Chat(Frame):
             col_begin = int(col_begin)
             col_end = int(col_end)
             sel = full_line[col_begin:col_end]
+            modified = False
             if col_begin:
-                before_line = re.search('[^ \r\n\t\<]+$', full_line[:col_begin])
-                if before_line:
-                    sel = before_line.group(0) + sel
-                    col_begin = col_begin - len(before_line.group(0))
+                around = re.search('[^ \r\n\t\<]+$', full_line[:col_begin])
+                if around:
+                    sel = around.group(0) + sel
+                    col_begin = col_begin - len(around.group(0))
+                    modified = True
             if col_end < len(full_line):
-                after_line = re.search('^[^ \r\n\t\:,\>]+', full_line[col_end:])
-                if after_line:
-                    sel = sel + after_line.group(0)
-                    col_end = col_end + len(after_line.group(0))
+                around = re.search('^[^ \r\n\t\:,\>]+', full_line[col_end:])
+                if around:
+                    sel = sel + around.group(0)
+                    col_end = col_end + len(around.group(0))
+                    modified = True
+            if not modified:   # workaround - см. NB в docstring; с изменением выделения не будем париться, только стрипнем ник
+                sel_strip = re.search('[^\<\>\:,]+', sel)
+                if sel_strip:
+                    sel = sel_strip.group(0)
             if self.doubleclick_callback:
                 is_nick = self.doubleclick_callback(sel)
                 if is_nick:
