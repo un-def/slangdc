@@ -58,11 +58,9 @@ class Gui:
 
     def connect(self):
         if not self.dc or not self.dc.connecting:   # если ещё не подключались или не подключаемся в данный момент
-            if self.address:
-                self.disconnect()   # отключимся, если уже подключены
-                self.dc = slangdc.DCClient(address=self.address, **config.settings)
-                self.run_chat_loop(self.dc)
-                DCThread(self.dc, pass_callback=self.get_pass, onclose_callback=self.reconnect).start()
+            self.dc = slangdc.DCClient(address=self.address, **config.settings)
+            self.run_chat_loop(self.dc)
+            DCThread(self.dc, pass_callback=self.get_pass, onclose_callback=self.reconnect).start()
 
     def disconnect(self):
         if self.dc and self.dc.connected:
@@ -70,15 +68,16 @@ class Gui:
             self.dc = None
 
     def connect_action(self, event=None):
-        self.cancel_reconnect_callback()
+        self.disconnect_action()
         self._reconnect = True if self.reconnect_after > 0 else False
         self.address = self.address_entry.get().strip()
-        self.connect()
+        if self.address:
+            self.connect()
 
     def disconnect_action(self, event=None):
-        self.cancel_reconnect_callback()
         self._reconnect = False
         self.disconnect()
+        self.cancel_reconnect_callback()
 
     def reconnect(self):
         if self._reconnect:
@@ -93,7 +92,7 @@ class Gui:
             self.reconnect_callback_id = None
 
     def quit(self):
-        self.disconnect()
+        self.disconnect_action()
         self.root.quit()
 
     def show_settings(self):
