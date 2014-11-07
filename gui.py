@@ -327,7 +327,7 @@ class SettingsWindow(Toplevel):
                 except ValueError:   # валидации форм нет, поэтому вместо недопустимых значений берём дефолтные
                     val = config.default_settings[field_name]
             new_settings[field_name] = val
-        config.update_settings(new_settings)
+        config.save_settings(new_settings)
         self.close()
 
     def close(self):
@@ -377,6 +377,8 @@ class DCThread(threading.Thread):
 
 
 config = conf.Config()
+config.load_settings()
+config.load_bookmarks()
 root = Tk()
 root.title("slangdc.Tk")
 gui = Gui(root)
