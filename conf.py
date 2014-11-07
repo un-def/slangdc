@@ -12,7 +12,8 @@ class Config:
         'encoding': 'windows-1251',
         'timeout': 900,
         'reconnect': True,
-        'reconnect_delay': 10
+        'reconnect_delay': 10,
+        'chat_addr_sep': ':'
     }
 
     def __init__(self):

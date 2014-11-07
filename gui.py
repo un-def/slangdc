@@ -13,83 +13,83 @@ class Gui:
     def __init__(self, root=None):
         self.root = root
         self.dc = None
+        self.dc_settings = None
         self.reconnect_callback_id = None
-        self.chat_addr_sep = ':'   # разделитель при обращении к пользователю в чате
-        main_frame = Frame(root)
+        main_frame = Frame(root, padx=5, pady=5)
         main_frame.pack(expand=YES, fill=BOTH)
         # меню
         menu_frame = Frame(main_frame)
         menu_frame.pack(side=TOP, fill=X)
-        menu_btn_bookmarks = Menubutton(menu_frame, text='Bookmarks', underline=0)
-        menu_btn_bookmarks.pack(side=LEFT)
-        menu_bookmarks = Menu(menu_btn_bookmarks, tearoff=False)
+        menu_bookmarks_btn = Menubutton(menu_frame, text='Bookmarks', relief=GROOVE, borderwidth=1, pady=5)
+        menu_bookmarks_btn.pack(side=LEFT)
+        menu_bookmarks = Menu(menu_bookmarks_btn, tearoff=False)
+        menu_bookmarks_btn.config(menu=menu_bookmarks)
         if config.bookmarks:
             for bm_number, bookmark in enumerate(config.bookmarks):
                 menu_bookmarks.add_command(label=bookmark['name'], command=lambda n=bm_number: self.bookmark_connect(n))
         else:
             menu_bookmarks.add_command(label='empty', state=DISABLED)
-        menu_btn_bookmarks.config(menu=menu_bookmarks)
+        buttons = (
+            ('Connect', self.connect),
+            ('Disconnect', self.disconnect),
+            ('Settings', self.show_settings),
+            ('Quit', self.quit)
+        )
+        for btn_txt, btn_cmd in buttons:
+            Button(menu_frame, text=btn_txt, command=btn_cmd, relief=GROOVE, borderwidth=1).pack(side=LEFT)
         # address entry, quick connect, disconnect, settings, quit buttons
-        ftop = Frame(main_frame)
-        ftop.pack(side=TOP, fill=X)
-        address_entry = Entry(ftop)
+        quick_frame = Frame(main_frame, pady=3)
+        quick_frame.pack(side=TOP, fill=X)
+        address_entry = Entry(quick_frame)
         address_entry.pack(side=LEFT)
         address_entry.bind('<Return>', self.quick_connect)
         self.address_entry = address_entry
-        Button(ftop, text="quick connect", command=self.quick_connect).pack(side=LEFT)
-        Button(ftop, text="disconnect", command=self.disconnect_action).pack(side=LEFT)
-        Button(ftop, text="quit", command=self.quit).pack(side=RIGHT)
-        Button(ftop, text="settings", command=self.show_settings).pack(side=RIGHT)
+        Button(quick_frame, text="Quick connect", command=self.quick_connect).pack(side=LEFT)
         # message entry, send button
         fbottom = Frame(main_frame)
         fbottom.pack(side=BOTTOM, fill=X)
-        msg_entry = Entry(fbottom, width=50)
-        msg_entry.pack(side=LEFT, expand=YES, fill=X)
-        msg_entry.bind('<Return>', self.send)
-        self.msg_entry = msg_entry
-        Button(fbottom, text="send", command=self.send).pack(side=RIGHT)
+        msg_box = Entry(fbottom)
+        msg_box.pack(side=LEFT, expand=YES, fill=X)
+        msg_box.bind('<Return>', self.send)
+        self.msg_box = msg_box
+        Button(fbottom, text="Send", command=self.send).pack(side=RIGHT)
         # chat
         self.chat = Chat(main_frame, side=TOP, doubleclick_callback=self.insert_nick)
 
     def get_pass(self):
         pass_window = PassWindow(self.root)
+        self.root.after(50)   # workaround - без этого иногда PassWindow блокируется
         pass_window.wait_window()
         return pass_window.password.get()
 
     def insert_nick(self, check_nick):
         if self.dc and check_nick != self.dc.nick and self.dc.nicklist:
             if check_nick in self.dc.nicklist:
-                if self.msg_entry.index('insert') == 0:   # если курсор стоит в начале поля ввода,
-                    check_nick = check_nick + self.chat_addr_sep + ' '   # то вставляем ник как обращение
-                self.msg_entry.insert('insert', check_nick)
-                self.msg_entry.focus_set()
+                if self.msg_box.index('insert') == 0:   # если курсор стоит в начале поля ввода,
+                    check_nick = check_nick + config.settings['chat_addr_sep'] + ' '   # то вставляем ник как обращение
+                self.msg_box.insert('insert', check_nick)
+                self.msg_box.focus_set()
                 return True
 
     def connect(self):
+        self.disconnect()
         self._reconnect = True if config.settings['reconnect'] and config.settings['reconnect_delay'] > 0 else False
-        if not self.dc or not self.dc.connecting:   # если ещё не подключались или не подключаемся в данный момент
+        if self.dc_settings and (not self.dc or not self.dc.connecting):   # если ещё не подключались или не подключаемся в данный момент
             self.dc = slangdc.DCClient(**self.dc_settings)
             self.run_chat_loop(self.dc)
             DCThread(self.dc, pass_callback=self.get_pass, onclose_callback=self.reconnect).start()
 
     def disconnect(self):
+        self._reconnect = False
         if self.dc and self.dc.connected:
             self.dc.disconnect()
             self.dc = None
-
-    def connect_action(self):
-        self.disconnect_action()
-        self.connect()
-
-    def disconnect_action(self):
-        self._reconnect = False
-        self.disconnect()
         self.cancel_reconnect_callback()
 
     def reconnect(self):
         if self._reconnect:
             try:
-                self.reconnect_callback_id = self.root.after(config.settings['reconnect_delay']*1000, self.connect_action)
+                self.reconnect_callback_id = self.root.after(config.settings['reconnect_delay']*1000, self.connect)
             except RuntimeError:   # main thread is not in main loop при закрытии приложения
                 pass
 
@@ -99,17 +99,19 @@ class Gui:
             self.reconnect_callback_id = None
 
     def quick_connect(self, event=None):
-        address = self.address_entry.get().strip()
+        address = self.address_entry.get().strip().rstrip('/').split('//')[-1]
         if address:
+            self.address_entry.delete(0, END)
+            self.address_entry.insert(0, address)
             self.dc_settings = config.make_dc_settings(address)
-            self.connect_action()
+            self.connect()
 
     def bookmark_connect(self, bm_number):
         self.dc_settings = config.make_dc_settings_from_bm(bm_number)
-        self.connect_action()
+        self.connect()
 
     def quit(self):
-        self.disconnect_action()
+        self.disconnect()
         self.root.quit()
 
     def show_settings(self):
@@ -120,7 +122,7 @@ class Gui:
 
     def send(self, event=None):
         if self.dc and self.dc.connected:
-            etext = self.msg_entry.get()
+            etext = self.msg_box.get()
             if etext:
                 if etext.startswith('/pm '):
                     nick, text = etext[4:].split(' ', 1)
@@ -138,7 +140,7 @@ class Gui:
                     self.quit()
                 elif not etext.startswith('/') or etext.startswith('/me '):
                     self.dc.chat_send(etext)
-                self.msg_entry.delete(0, END)
+                self.msg_box.delete(0, END)
 
     def run_chat_loop(self, dc):
         ''' небольшой трюк - ссылку на инстанс DCClient передаём не через
@@ -195,10 +197,10 @@ class Chat(Frame):
         font_bold = (font_family, font_size, 'bold')
         tool_frame = Frame(self)
         tool_frame.pack(side=BOTTOM, fill=X)
-        Button(tool_frame, text='clear chat', command=self.clear).pack(side=LEFT)
+        Button(tool_frame, text='Clear chat', command=self.clear).pack(side=LEFT)
         self.autoscroll = BooleanVar()
         self.autoscroll.set(True)
-        Checkbutton(tool_frame, text='autoscroll', variable=self.autoscroll).pack(side=LEFT)
+        Checkbutton(tool_frame, text='Autoscroll', variable=self.autoscroll).pack(side=LEFT)
         chat = Text(self, wrap=WORD, state=DISABLED)
         scroll.config(command=chat.yview)
         chat.config(yscrollcommand=scroll.set)
@@ -300,21 +302,22 @@ class SettingsWindow(Toplevel):
         self.protocol('WM_DELETE_WINDOW', self.close)
         # (field_name, field_type, field_text)
         fields = (
-            ('nick', 'str', 'nick'),
-            ('desc', 'str', 'description'),
-            ('email', 'str', 'e-mail'),
-            ('share', 'int', 'share'),
-            ('slots', 'int', 'slots'),
-            ('encoding', 'str', 'encoding'),
-            ('timeout', 'int', 'receive timeout'),
-            ('reconnect', 'bool', 'reconnect'),
-            ('reconnect_delay', 'int', 'reconnect delay')
+            ('nick', 'str', 'Nick'),
+            ('desc', 'str', 'Description'),
+            ('email', 'str', 'E-mail'),
+            ('share', 'int', 'Share'),
+            ('slots', 'int', 'Slots'),
+            ('encoding', 'str', 'Encoding'),
+            ('timeout', 'int', 'Receive timeout'),
+            ('reconnect', 'bool', 'Reconnect'),
+            ('reconnect_delay', 'int', 'Reconnect delay'),
+            ('chat_addr_sep', 'str', 'Chat address separator')
         )
         self.entry_vars = {}
         grid_frame = Frame(self)
         grid_frame.pack(padx=5, pady=5)
         for row, (field_name, field_type, field_text) in enumerate(fields):
-            Label(grid_frame, width=12, text=field_text, anchor=W).grid(row=row, column=0)
+            Label(grid_frame, width=20, text=field_text, anchor=W).grid(row=row, column=0)
             if field_type == 'bool':
                 var = BooleanVar()
                 Checkbutton(grid_frame, variable=var).grid(row=row, column=1, sticky=W)
@@ -323,8 +326,8 @@ class SettingsWindow(Toplevel):
                 Entry(grid_frame, width=20, textvariable=var).grid(row=row, column=1)
             var.set(config.settings[field_name])
             self.entry_vars[field_name] = (var, field_type)
-        Button(self, text="cancel", width=8, command=self.close).pack(side=RIGHT, padx=5, pady=3)
-        Button(self, text="save", width=8, command=self.save).pack(side=RIGHT)
+        Button(self, text="Cancel", width=8, command=self.close).pack(side=RIGHT, padx=5, pady=3)
+        Button(self, text="Save", width=8, command=self.save).pack(side=RIGHT)
 
     def save(self):
         new_settings = {}
@@ -347,18 +350,20 @@ class PassWindow(Toplevel):
 
     def __init__(self, root=None):
         Toplevel.__init__(self, root)
-        self.title("password")
+        self.title("Password")
         self.resizable(width=FALSE, height=FALSE)
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.transient()
-        self.focus_set()
         self.grab_set()
-        Label(self, text='password', anchor=W).pack(side=LEFT)
+        pass_frame = Frame(self, padx=5, pady=5)
+        pass_frame.pack(expand=YES, fill=BOTH)
+        Label(pass_frame, text='Password', anchor=W).pack(side=LEFT)
         self.password = StringVar()
-        pass_entry = Entry(self, show='*', textvariable=self.password)
-        pass_entry.pack(side=LEFT, expand=YES, fill=X)
+        pass_entry = Entry(pass_frame, show='*', textvariable=self.password)
+        pass_entry.pack(side=LEFT, expand=YES, fill=X, padx=5)
+        pass_entry.focus_set()
         pass_entry.bind('<Return>', self.confirm)
-        Button(self, text="ok", command=self.confirm).pack(side=RIGHT)
+        Button(pass_frame, text="OK", command=self.confirm).pack(side=RIGHT)
 
     def close(self):
         self.password.set('')
