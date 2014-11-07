@@ -10,9 +10,12 @@ import conf
 
 class Gui:
 
+    reconnect_after = 3
+
     def __init__(self, root=None):
         self.root = root
         self.dc = None
+        self.reconnect_callback_id = None
         self.chat_addr_sep = ':'   # разделитель при обращении к пользователю в чате
         main_frame = Frame(root)
         main_frame.pack(expand=YES, fill=BOTH)
@@ -22,10 +25,10 @@ class Gui:
         address_entry = Entry(ftop)
         address_entry.insert(0, 'allavtovo.ru')
         address_entry.pack(side=LEFT)
-        address_entry.bind('<Return>', self.connect)
+        address_entry.bind('<Return>', self.connect_action)
         self.address_entry = address_entry
-        Button(ftop, text="connect", command=self.connect).pack(side=LEFT)
-        Button(ftop, text="disconnect", command=self.disconnect).pack(side=LEFT)
+        Button(ftop, text="connect", command=self.connect_action).pack(side=LEFT)
+        Button(ftop, text="disconnect", command=self.disconnect_action).pack(side=LEFT)
         Button(ftop, text="quit", command=self.quit).pack(side=RIGHT)
         Button(ftop, text="settings", command=self.show_settings).pack(side=RIGHT)
         # message entry, send button
@@ -53,19 +56,41 @@ class Gui:
                 self.msg_entry.focus_set()
                 return True
 
-    def connect(self, event=None):
+    def connect(self):
         if not self.dc or not self.dc.connecting:   # если ещё не подключались или не подключаемся в данный момент
-            address = self.address_entry.get().strip()
-            if address:
+            if self.address:
                 self.disconnect()   # отключимся, если уже подключены
-                self.dc = slangdc.DCClient(address=address, **config.settings)
+                self.dc = slangdc.DCClient(address=self.address, **config.settings)
                 self.run_chat_loop(self.dc)
-                DCThread(self.dc, pass_callback=self.get_pass).start()
+                DCThread(self.dc, pass_callback=self.get_pass, onclose_callback=self.reconnect).start()
 
     def disconnect(self):
         if self.dc and self.dc.connected:
             self.dc.disconnect()
             self.dc = None
+
+    def connect_action(self, event=None):
+        self.cancel_reconnect_callback()
+        self._reconnect = True if self.reconnect_after > 0 else False
+        self.address = self.address_entry.get().strip()
+        self.connect()
+
+    def disconnect_action(self, event=None):
+        self.cancel_reconnect_callback()
+        self._reconnect = False
+        self.disconnect()
+
+    def reconnect(self):
+        if self._reconnect:
+            try:
+                self.reconnect_callback_id = self.root.after(self.reconnect_after*1000, self.connect)
+            except RuntimeError:   # main thread is not in main loop при закрытии приложения
+                pass
+
+    def cancel_reconnect_callback(self):
+        if self.reconnect_callback_id:
+            self.root.after_cancel(self.reconnect_callback_id)
+            self.reconnect_callback_id = None
 
     def quit(self):
         self.disconnect()
@@ -323,15 +348,18 @@ class PassWindow(Toplevel):
 
 class DCThread(threading.Thread):
 
-    def __init__(self, dc, pass_callback=None):
+    def __init__(self, dc, pass_callback=None, onclose_callback=None):
         self.dc = dc
         self.pass_callback=pass_callback
+        self.onclose_callback=onclose_callback
         threading.Thread.__init__(self, name=self.__class__.__name__)
 
     def run(self):
         self.dc.connect(get_nicks=True, pass_callback=self.pass_callback)
         while self.dc.connected:
             self.dc.receive(raise_exc=False)
+        if self.onclose_callback:
+            self.onclose_callback()
 
 
 config = conf.Config()
