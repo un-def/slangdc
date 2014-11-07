@@ -10,8 +10,6 @@ import conf
 
 class Gui:
 
-    reconnect_after = 3
-
     def __init__(self, root=None):
         self.root = root
         self.dc = None
@@ -57,8 +55,19 @@ class Gui:
                 return True
 
     def connect(self):
+        self._reconnect = True if config.settings['reconnect'] and config.settings['reconnect_delay'] > 0 else False
         if not self.dc or not self.dc.connecting:   # если ещё не подключались или не подключаемся в данный момент
-            self.dc = slangdc.DCClient(address=self.address, **config.settings)
+            settings = {
+                'address': self.address,
+                'nick': config.settings['nick'],
+                'desc': config.settings['desc'],
+                'email': config.settings['email'],
+                'share': config.settings['share'],
+                'slots': config.settings['slots'],
+                'encoding': config.settings['encoding'],
+                'timeout': config.settings['timeout'],
+            }
+            self.dc = slangdc.DCClient(**settings)
             self.run_chat_loop(self.dc)
             DCThread(self.dc, pass_callback=self.get_pass, onclose_callback=self.reconnect).start()
 
@@ -69,7 +78,6 @@ class Gui:
 
     def connect_action(self, event=None):
         self.disconnect_action()
-        self._reconnect = True if self.reconnect_after > 0 else False
         self.address = self.address_entry.get().strip()
         if self.address:
             self.connect()
@@ -82,7 +90,7 @@ class Gui:
     def reconnect(self):
         if self._reconnect:
             try:
-                self.reconnect_callback_id = self.root.after(self.reconnect_after*1000, self.connect)
+                self.reconnect_callback_id = self.root.after(config.settings['reconnect_delay']*1000, self.connect_action)
             except RuntimeError:   # main thread is not in main loop при закрытии приложения
                 pass
 
@@ -179,8 +187,8 @@ class Chat(Frame):
         tool_frame = Frame(self)
         tool_frame.pack(side=BOTTOM, fill=X)
         Button(tool_frame, text='clear chat', command=self.clear).pack(side=LEFT)
-        self.autoscroll = IntVar()
-        self.autoscroll.set(1)
+        self.autoscroll = BooleanVar()
+        self.autoscroll.set(True)
         Checkbutton(tool_frame, text='autoscroll', variable=self.autoscroll).pack(side=LEFT)
         chat = Text(self, wrap=WORD, state=DISABLED)
         scroll.config(command=chat.yview)
@@ -289,16 +297,23 @@ class SettingsWindow(Toplevel):
             ('share', 'int', 'share'),
             ('slots', 'int', 'slots'),
             ('encoding', 'str', 'encoding'),
-            ('timeout', 'int', 'receive timeout')
+            ('timeout', 'int', 'receive timeout'),
+            ('reconnect', 'bool', 'reconnect'),
+            ('reconnect_delay', 'int', 'reconnect delay')
         )
         self.entry_vars = {}
         grid_frame = Frame(self)
         grid_frame.pack(padx=5, pady=5)
         for row, (field_name, field_type, field_text) in enumerate(fields):
-            self.entry_vars[field_name] = (StringVar(), field_type)
-            self.entry_vars[field_name][0].set(config.settings[field_name])
             Label(grid_frame, width=12, text=field_text, anchor=W).grid(row=row, column=0)
-            Entry(grid_frame, width=20, textvariable=self.entry_vars[field_name][0]).grid(row=row, column=1)
+            if field_type == 'bool':
+                var = BooleanVar()
+                Checkbutton(grid_frame, variable=var).grid(row=row, column=1, sticky=W)
+            else:
+                var = StringVar()
+                Entry(grid_frame, width=20, textvariable=var).grid(row=row, column=1)
+            var.set(config.settings[field_name])
+            self.entry_vars[field_name] = (var, field_type)
         Button(self, text="cancel", width=8, command=self.close).pack(side=RIGHT, padx=5, pady=3)
         Button(self, text="save", width=8, command=self.save).pack(side=RIGHT)
 

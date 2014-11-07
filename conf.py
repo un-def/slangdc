@@ -11,8 +11,10 @@ class Config:
         'email': '',
         'share': 0,
         'slots': 1,
+        'encoding': 'windows-1251',
         'timeout': 900,
-        'encoding': 'windows-1251'
+        'reconnect': True,
+        'reconnect_delay': 10
     }
 
     def __init__(self):
