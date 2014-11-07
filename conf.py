@@ -66,3 +66,22 @@ class Config:
     def save_bookmarks(self, bookmarks):
         self.bookmarks = bookmarks
         self.save_file(self.bookmarks_filename, bookmarks)
+
+    def make_dc_settings(self, address=None):
+        ''' возвращает словарь аргументов для DCClient.connect из текущих
+            настроек (Config.settings) и адреса, если он передан
+        '''
+        dc_settings = {s: self.settings[s] for s in ('nick', 'desc', 'email', 'share', 'slots', 'encoding', 'timeout')}
+        if address:
+            dc_settings['address'] = address
+        return dc_settings
+
+    def make_dc_settings_from_bm(self, bm_number):
+        ''' возвращает словарь аргументов для DCClient.connect из указанной
+            закладки; недостающие в закладке поля берутся из текущих настроек
+            (Config.settings)
+        '''
+        dc_settings = self.make_dc_settings()
+        dc_settings.update(self.bookmarks[bm_number])
+        dc_settings.pop('name')
+        return dc_settings

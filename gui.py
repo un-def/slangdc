@@ -17,15 +17,26 @@ class Gui:
         self.chat_addr_sep = ':'   # разделитель при обращении к пользователю в чате
         main_frame = Frame(root)
         main_frame.pack(expand=YES, fill=BOTH)
-        # address entry, connect, disconnect, settings, quit buttons
+        # меню
+        menu_frame = Frame(main_frame)
+        menu_frame.pack(side=TOP, fill=X)
+        menu_btn_bookmarks = Menubutton(menu_frame, text='Bookmarks', underline=0)
+        menu_btn_bookmarks.pack(side=LEFT)
+        menu_bookmarks = Menu(menu_btn_bookmarks, tearoff=False)
+        if config.bookmarks:
+            for bm_number, bookmark in enumerate(config.bookmarks):
+                menu_bookmarks.add_command(label=bookmark['name'], command=lambda n=bm_number: self.bookmark_connect(n))
+        else:
+            menu_bookmarks.add_command(label='empty', state=DISABLED)
+        menu_btn_bookmarks.config(menu=menu_bookmarks)
+        # address entry, quick connect, disconnect, settings, quit buttons
         ftop = Frame(main_frame)
         ftop.pack(side=TOP, fill=X)
         address_entry = Entry(ftop)
-        address_entry.insert(0, 'allavtovo.ru')
         address_entry.pack(side=LEFT)
-        address_entry.bind('<Return>', self.connect_action)
+        address_entry.bind('<Return>', self.quick_connect)
         self.address_entry = address_entry
-        Button(ftop, text="connect", command=self.connect_action).pack(side=LEFT)
+        Button(ftop, text="quick connect", command=self.quick_connect).pack(side=LEFT)
         Button(ftop, text="disconnect", command=self.disconnect_action).pack(side=LEFT)
         Button(ftop, text="quit", command=self.quit).pack(side=RIGHT)
         Button(ftop, text="settings", command=self.show_settings).pack(side=RIGHT)
@@ -57,17 +68,7 @@ class Gui:
     def connect(self):
         self._reconnect = True if config.settings['reconnect'] and config.settings['reconnect_delay'] > 0 else False
         if not self.dc or not self.dc.connecting:   # если ещё не подключались или не подключаемся в данный момент
-            settings = {
-                'address': self.address,
-                'nick': config.settings['nick'],
-                'desc': config.settings['desc'],
-                'email': config.settings['email'],
-                'share': config.settings['share'],
-                'slots': config.settings['slots'],
-                'encoding': config.settings['encoding'],
-                'timeout': config.settings['timeout'],
-            }
-            self.dc = slangdc.DCClient(**settings)
+            self.dc = slangdc.DCClient(**self.dc_settings)
             self.run_chat_loop(self.dc)
             DCThread(self.dc, pass_callback=self.get_pass, onclose_callback=self.reconnect).start()
 
@@ -76,13 +77,11 @@ class Gui:
             self.dc.disconnect()
             self.dc = None
 
-    def connect_action(self, event=None):
+    def connect_action(self):
         self.disconnect_action()
-        self.address = self.address_entry.get().strip()
-        if self.address:
-            self.connect()
+        self.connect()
 
-    def disconnect_action(self, event=None):
+    def disconnect_action(self):
         self._reconnect = False
         self.disconnect()
         self.cancel_reconnect_callback()
@@ -98,6 +97,16 @@ class Gui:
         if self.reconnect_callback_id:
             self.root.after_cancel(self.reconnect_callback_id)
             self.reconnect_callback_id = None
+
+    def quick_connect(self, event=None):
+        address = self.address_entry.get().strip()
+        if address:
+            self.dc_settings = config.make_dc_settings(address)
+            self.connect_action()
+
+    def bookmark_connect(self, bm_number):
+        self.dc_settings = config.make_dc_settings_from_bm(bm_number)
+        self.connect_action()
 
     def quit(self):
         self.disconnect_action()
