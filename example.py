@@ -24,7 +24,7 @@ class DCThread(threading.Thread):
         threading.Thread.__init__(self)
 
     def run(self):
-        self.dc.connect(get_nicks=True)
+        self.dc.connect(nicklist=True)
         while self.dc.connected:
             self.dc.receive(raise_exc=False)
 
@@ -38,11 +38,12 @@ class PrintThread(threading.Thread):
         threading.Thread.__init__(self)
 
     def run(self):
-        counter = self.disconnect_countdown
-        while self.dc.socket or counter:   # workaround, чтобы автоматически прибить тред после отключения (удаления сокета), но при этом забрать последнее сообщение (-ия) ("disconnect")
+        while True:
             message = self.dc.message_queue.mget()
             if message:
-                if message['type'] == slangdc.MSGCHAT:
+                if message['type'] == slangdc.MSGEND:
+                    return
+                elif message['type'] == slangdc.MSGCHAT:
                     if not message['me']:
                         pref = "<" + message['nick'] + ">"
                     else:
@@ -63,12 +64,12 @@ class PrintThread(threading.Thread):
                             pref = pref + " * " + self.dc.nick
                 elif message['type'] == slangdc.MSGERR:
                     pref = "xxx"
-                else:
+                elif message['type'] == slangdc.MSGINFO:
                     pref = "***"
+                else:
+                    pass   # joins/parts
                 timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
                 print("{0} {1} {2}".format(timestamp, pref, message['text']))
-            if not self.dc.socket:
-                counter -= 1
             time.sleep(0.01)
 
 
@@ -89,9 +90,6 @@ class InputThread(threading.Thread):
                 elif message == '/quit':
                     self.dc.disconnect()
                     return
-                elif message == '/showjoins':
-                    dc.showjoins = not dc.showjoins
-                    print("showjoins: ", dc.showjoins)
                 elif message == '/usercount':
                     print("users: ", len(dc.nicklist))
                 elif message == '/nicklist':

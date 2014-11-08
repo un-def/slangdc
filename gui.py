@@ -10,6 +10,8 @@ import conf
 
 class Gui:
 
+    show_joins = True
+
     def __init__(self):
         self.dc = None
         self.dc_settings = None
@@ -172,8 +174,8 @@ class Gui:
             if message['type'] == slangdc.MSGEND:
                 return
             else:
-                message['text'] = message['text'].replace('\r', '')
                 if message['type'] == slangdc.MSGCHAT:
+                    message['text'] = message['text'].replace('\r', '')
                     nick_tag = 'nick'
                     if message['nick'] == dc.nick:
                         nick_tag = 'own_nick'
@@ -187,6 +189,7 @@ class Gui:
                     else:
                         msg = ('text', "* ", nick_tag, message['nick'], 'text', " " + message['text'])
                 elif message['type'] == slangdc.MSGPM:
+                    message['text'] = message['text'].replace('\r', '')
                     if 'sender' in message:   # если это входящее сообщение
                         pref = "PM from " + message['sender']
                     else:   # если исходящее сообщение
@@ -194,10 +197,24 @@ class Gui:
                     msg = ('info', pref)
                 elif message['type'] == slangdc.MSGERR:
                     msg = ('error', "*** " + message['text'])
-                else:
+                elif message['type'] == slangdc.MSGINFO:
                     msg = ('info', "*** " + message['text'])
-                timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
-                self.chat.add_message(('timestamp', timestamp) + msg)
+                else:   # MSGNICK
+                    if self.show_joins:
+                        if isinstance(message['nick'], list):
+                            nick = "|".join(message['nick'])
+                        else:
+                            nick = message['nick']
+                        if message['state'] == 'join':
+                            role = " as " + message['role']
+                        else:
+                            role = ""
+                        msg = ('info', "### {0}: {1}{2}".format(message['state'], nick, role))
+                    else:
+                        msg = None
+                if msg:
+                    timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
+                    self.chat.add_message(('timestamp', timestamp) + msg)
         self.root.after(10, self.run_chat_loop, dc)
 
 
@@ -427,7 +444,7 @@ class DCThread(threading.Thread):
         threading.Thread.__init__(self, name=self.__class__.__name__)
 
     def run(self):
-        self.dc.connect(get_nicks=True, pass_callback=self.pass_callback)
+        self.dc.connect(nicklist=True, msgnick=True, pass_callback=self.pass_callback)
         while self.dc.connected:
             self.dc.receive(raise_exc=False)
         if self.onclose_callback:

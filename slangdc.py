@@ -14,6 +14,7 @@ MSGINFO = 1
 MSGERR = 2
 MSGCHAT = 3
 MSGPM = 4
+MSGNICK = 5
 
 def dcescape(text):
     return text.replace('$', '&#36;').replace('|', '&#124;')
@@ -86,6 +87,17 @@ class MsgQueue(queue.Queue):
                 исходящее сообщение:
                 mput(type=MSGPM, recipient='…', text='…', me=False|True)
 
+            MSGNICK:
+                mput(type=MSGNICK, nick=<str или list>, state='join', role='…')
+                mput(type=MSGNICK, nick=<str или list>, state='part')
+                сообщение о приходе (join) или уходе (part) юзера (-ов) с хаба
+                nick может быть строкой (один ник) или списком
+                role:
+                    user    - обычный пользователь ($NickList)
+                    op      - оператор ($OpList)
+                    bot     - бот ($BotList)
+                    unknown - неизвестно ($MyINFO)
+
             MSGEND:
                 mput(type=MSGEND)
                 маркер последнего сообщения в очереди (т.е. больше туда ничего
@@ -123,17 +135,17 @@ class NickList(set):
 
     def add(self, nicks, list_type=None):
         """ добавляет пользователя/нескольких пользователей
-            в основной список и, если указан list_type='OpList|BotList',
+            в основной список и, если указан list_type='op|bot',
             в список опов/ботов соответственно
-            по умолчанию list_type=None (эквивалентно 'NickList')
+            по умолчанию list_type=None (эквивалентно 'user')
         """
-        if list_type == 'NickList': list_type = None
+        if list_type == 'user': list_type = None
         if not isinstance(nicks, (list, tuple, set, frozenset)):
             nicks = (nicks,)   # если не коллекция, сделаем коллекцией
         self.update(nicks)
         if list_type:
             # ссылка на self.ops или self.bots
-            ops_bots = self.ops if list_type == 'OpList' else self.bots
+            ops_bots = self.ops if list_type == 'op' else self.bots
             ops_bots.update(nicks)
 
     def remove(self, nicks):
@@ -141,20 +153,16 @@ class NickList(set):
             из всех трёх списков (основной, боты, операторы)
             попытка удалить несуществующий ник игнорируется
         """
-        if isinstance(nicks, (list, tuple, set, frozenset)):
-            self.difference_update(nicks)
-            self.ops.difference_update(nicks)
-            self.bots.difference_update(nicks)
-        else:
-            self.discard(nicks)
-            self.ops.discard(nicks)
-            self.bots.discard(nicks)
+        if not isinstance(nicks, (list, tuple, set, frozenset)):
+            nicks = (nicks,)   # если не коллекция, сделаем коллекцией
+        self.difference_update(nicks)
+        self.ops.difference_update(nicks)
+        self.bots.difference_update(nicks)
 
 
 class DCClient:
 
     debug = False
-    showjoins = False
     _connect_timeout = 30   # таймаут для попытки коннекта (socket.connect и recv при хендшейке)
     _real_timeout = 0.5   # "настоящий" таймаут для recv - вместо блокирующего чтения с заданным в настройках timeout будем много раз (timeout/_real_timeout) пытаться прочитать с маленьким таймаутом; можно было бы использовать select
 
@@ -192,16 +200,23 @@ class DCClient:
         self.socket_lock = RLock()
         self.recv_list = []
         self.message_queue = MsgQueue()
-        self.nicklist = None
         self.hubname = None
         self.hubtopic = None
 
-    def connect(self, get_nicks=True, pass_callback=None):
+    def connect(self, nicklist=False, msgnick=False, pass_callback=None):
         """ подключиться к хабу
             возвращает True или False
 
-            get_nicks=True
-                отправить команду $GetNickList
+            nicklist=False|True
+                хранить список пользователей в self.nicklist (инстанс NickList)
+                если False, то self.nicklist = None
+
+            msgnick=False|True
+                сообщать о приходе/уходе пользователей сообщениями MSGNICK в
+                очередь self.message_queue (инстанс MsgQueue)
+
+            если хотя бы один из аргументов nicklist и msgnick - True, то при
+            коннекте хабу отправляется команда $GetNickList
 
             pass_callback=<callable_object>
                 коллбэк, вызываемый, если пароль не был указан, но хаб его
@@ -261,16 +276,18 @@ class DCClient:
             else:   # если вышли не по break (т.е. не получили Hello)
                 self.message_queue.mput(type=MSGERR, text="$Hello was not received")
                 return False
-            if get_nicks:
-                getnicklist = '$GetNickList'
+            if nicklist:
                 self.nicklist = NickList()
+            if nicklist or msgnick:
+                getnicklist = '$GetNickList'
             else:
                 getnicklist = ''
-                self.nicklist = None
             self.send('$Version 1,0091', getnicklist, '$MyINFO $ALL {0} {1}<slangdc V:{2},M:P,H:0/1/0,S:{3}>$ $100 ${4}${5}$'.format(self.nick, self.desc, version, self.slots, self.email, self.share))
             return True
 
         self.connecting = True
+        self.nicklist = None
+        self.msgnick = msgnick
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.message_queue.mput(type=MSGINFO, text="connecting to {0}".format(self.address))
         try:
@@ -434,11 +451,12 @@ class DCClient:
                     self.hubtopic = data[10:]
                     self.message_queue.mput(type=MSGINFO, text="HubTopic: {0}".format(self.hubtopic))
                     return None
-                elif self.nicklist and data.startswith('$Quit '):
+                elif data.startswith('$Quit ') and (self.nicklist or self.msgnick):
                     nick = data[6:]
-                    self.nicklist.remove(nick)
-                    if self.showjoins:
-                        self.message_queue.mput(type=MSGINFO, text="quit {0}".format(nick))
+                    if self.nicklist:
+                        self.nicklist.remove(nick)
+                    if self.msgnick:
+                        self.message_queue.mput(type=MSGNICK, nick=nick, state='part')
                     return None
                 else:
                     pm = re.fullmatch('\$To: .+? From: (.+?) \$(.+)', data, flags=re.DOTALL)
@@ -452,24 +470,27 @@ class DCClient:
                             nick, text, me = None, pm.group(2), False
                         self.message_queue.mput(type=MSGPM, sender=sender, nick=nick, text=text, me=me)
                         return None
-                    if self.nicklist:
+                    if self.nicklist or self.msgnick:
                         nicklist = re.fullmatch('\$(NickList|OpList|BotList) (.+)', data)
                         if nicklist:
-                            list_type = nicklist.group(1)
+                            list_type = {'NickList': 'user', 'OpList': 'op', 'BotList': 'bot'}[nicklist.group(1)]
                             list_ = nicklist.group(2)
                             # $OpList op1$$op2$$op3$$ или $OpList op4
                             if '$' in list_:
                                 list_ = list_.split('$$')
                                 list_.pop()
-                            self.nicklist.add(list_, list_type)
+                            if self.nicklist:
+                                self.nicklist.add(list_, list_type)
+                            if self.msgnick:
+                                self.message_queue.mput(type=MSGNICK, nick=list_, state='join', role=list_type)
                             return None
                         myinfo = re.match('\$MyINFO \$ALL (.+?) ', data)
                         if myinfo:
                             nick = myinfo.group(1)
-                            if not nick in self.nicklist:
+                            if self.nicklist:
                                 self.nicklist.add(nick)
-                                if self.showjoins:
-                                    self.message_queue.mput(type=MSGINFO, text="enter {0}".format(nick))
+                            if self.msgnick:
+                                self.message_queue.mput(type=MSGNICK, nick=nick, state='join', role='unknown')
                             return None
             return data
 
