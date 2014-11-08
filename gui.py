@@ -10,51 +10,55 @@ import conf
 
 class Gui:
 
-    def __init__(self, root=None):
-        self.root = root
+    def __init__(self):
         self.dc = None
         self.dc_settings = None
         self.reconnect_callback_id = None
+        root = Tk()
+        root.title("slangdc.Tk")
+        root.protocol('WM_DELETE_WINDOW', self.quit)
+        self.root = root
         main_frame = Frame(root, padx=5, pady=5)
         main_frame.pack(expand=YES, fill=BOTH)
         # меню
-        menu_frame = Frame(main_frame)
-        menu_frame.pack(side=TOP, fill=X)
-        menu_bookmarks_btn = Menubutton(menu_frame, text='Bookmarks', relief=GROOVE, borderwidth=1, pady=5)
-        menu_bookmarks_btn.pack(side=LEFT)
-        menu_bookmarks = Menu(menu_bookmarks_btn, tearoff=False)
-        menu_bookmarks_btn.config(menu=menu_bookmarks)
+        menu = Menu(root, borderwidth=0)
+        root.config(menu=menu)
+        menu_bookmarks = Menu(menu, tearoff=False)
         if config.bookmarks:
             for bm_number, bookmark in enumerate(config.bookmarks):
                 menu_bookmarks.add_command(label=bookmark['name'], command=lambda n=bm_number: self.bookmark_connect(n))
         else:
-            menu_bookmarks.add_command(label='empty', state=DISABLED)
-        buttons = (
+            menu_bookmarks.add_command(label="Empty", state=DISABLED)
+        menu.add_cascade(label="Bookmarks", menu=menu_bookmarks)
+        menu_buttons = (
             ('Connect', self.connect),
             ('Disconnect', self.disconnect),
             ('Settings', self.show_settings),
             ('Quit', self.quit)
         )
-        for btn_txt, btn_cmd in buttons:
-            Button(menu_frame, text=btn_txt, command=btn_cmd, relief=GROOVE, borderwidth=1).pack(side=LEFT)
+        for btn_txt, btn_cmd in menu_buttons:
+            menu.add_command(label=btn_txt, command=btn_cmd)
         # address entry, quick connect, disconnect, settings, quit buttons
         quick_frame = Frame(main_frame, pady=3)
         quick_frame.pack(side=TOP, fill=X)
-        address_entry = Entry(quick_frame)
-        address_entry.pack(side=LEFT)
-        address_entry.bind('<Return>', self.quick_connect)
-        self.address_entry = address_entry
+        quick_address = Entry(quick_frame)
+        quick_address.pack(side=LEFT)
+        quick_address.bind('<Return>', self.quick_connect)
+        self.quick_address = quick_address
         Button(quick_frame, text="Quick connect", command=self.quick_connect).pack(side=LEFT)
         # message entry, send button
-        fbottom = Frame(main_frame)
-        fbottom.pack(side=BOTTOM, fill=X)
-        msg_box = Entry(fbottom)
+        msg_frame = Frame(main_frame)
+        msg_frame.pack(side=BOTTOM, fill=X)
+        msg_box = Entry(msg_frame)
         msg_box.pack(side=LEFT, expand=YES, fill=X)
         msg_box.bind('<Return>', self.send)
         self.msg_box = msg_box
-        Button(fbottom, text="Send", command=self.send).pack(side=RIGHT)
+        Button(msg_frame, text="Send", command=self.send).pack(side=RIGHT)
         # chat
         self.chat = Chat(main_frame, side=TOP, doubleclick_callback=self.insert_nick)
+
+    def mainloop(self):
+        self.root.mainloop()
 
     def get_pass(self):
         pass_window = PassWindow(self.root)
@@ -99,10 +103,10 @@ class Gui:
             self.reconnect_callback_id = None
 
     def quick_connect(self, event=None):
-        address = self.address_entry.get().strip().rstrip('/').split('//')[-1]
+        address = self.quick_address.get().strip().rstrip('/').split('//')[-1]
         if address:
-            self.address_entry.delete(0, END)
-            self.address_entry.insert(0, address)
+            self.quick_address.delete(0, END)
+            self.quick_address.insert(0, address)
             self.dc_settings = config.make_dc_settings(address)
             self.connect()
 
@@ -393,8 +397,4 @@ class DCThread(threading.Thread):
 config = conf.Config()
 config.load_settings()
 config.load_bookmarks()
-root = Tk()
-root.title("slangdc.Tk")
-gui = Gui(root)
-root.protocol('WM_DELETE_WINDOW', gui.quit)
-root.mainloop()
+Gui().mainloop()
