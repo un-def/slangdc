@@ -54,8 +54,12 @@ class Gui:
         msg_box.bind('<Return>', self.send)
         self.msg_box = msg_box
         Button(msg_frame, text="Send", command=self.send).pack(side=RIGHT)
-        # chat
-        self.chat = Chat(main_frame, side=TOP, doubleclick_callback=self.insert_nick)
+        # chat, userlist
+        chat_users_frame = Frame(main_frame)
+        chat_users_frame.pack(side=TOP, expand=YES, fill=BOTH)
+        self.userlist = UserList(chat_users_frame, side=RIGHT, expand=NO, fill=Y)
+        self.chat = Chat(chat_users_frame, side=LEFT, expand=YES, fill=BOTH, doubleclick_callback=self.insert_nick)
+        self.root.after(500, self.run_users_loop)   ###
 
     def mainloop(self):
         self.root.mainloop()
@@ -81,6 +85,7 @@ class Gui:
         if self.dc_settings and (not self.dc or not self.dc.connecting):   # если ещё не подключались или не подключаемся в данный момент
             self.dc = slangdc.DCClient(**self.dc_settings)
             self.run_chat_loop(self.dc)
+            self.root.after(100, self.run_users_loop)
             DCThread(self.dc, pass_callback=self.get_pass, onclose_callback=self.reconnect).start()
 
     def disconnect(self):
@@ -104,6 +109,7 @@ class Gui:
 
     def quick_connect(self, event=None):
         address = self.quick_address.get().strip().rstrip('/').split('//')[-1]
+
         if address:
             self.quick_address.delete(0, END)
             self.quick_address.insert(0, address)
@@ -145,6 +151,14 @@ class Gui:
                 elif not etext.startswith('/') or etext.startswith('/me '):
                     self.dc.chat_send(etext)
                 self.msg_box.delete(0, END)
+
+    def run_users_loop(self):
+        if self.dc and (self.dc.connecting or self.dc.connected):
+            if self.dc.nicklist:
+                self.userlist.update(sorted(self.dc.nicklist.ops))
+            self.root.after(1000, self.run_users_loop)
+        else:
+            self.userlist.clear()
 
     def run_chat_loop(self, dc):
         ''' небольшой трюк - ссылку на инстанс DCClient передаём не через
@@ -191,10 +205,9 @@ class Chat(Frame):
 
     max_lines = 500
 
-    def __init__(self, parent=None, side=TOP, doubleclick_callback=None):
+    def __init__(self, parent, side, expand, fill, doubleclick_callback=None):
         Frame.__init__(self, parent)
-        self.pack(expand=YES, fill=BOTH, side=side)
-        scroll = Scrollbar(self)
+        self.pack(side=side, expand=expand, fill=fill)
         font_family = 'Helvetica'
         font_size = 12
         font_normal = (font_family, font_size, 'normal')
@@ -206,18 +219,23 @@ class Chat(Frame):
         self.autoscroll.set(True)
         Checkbutton(tool_frame, text='Autoscroll', variable=self.autoscroll).pack(side=LEFT)
         chat = Text(self, wrap=WORD, state=DISABLED)
+        scroll = Scrollbar(self)
         scroll.config(command=chat.yview)
-        chat.config(yscrollcommand=scroll.set)
         scroll.pack(side=RIGHT, fill=Y)
+        chat.config(yscrollcommand=scroll.set)
         chat.pack(side=LEFT, expand=YES, fill=BOTH)
-        chat.tag_config('timestamp', font=font_normal, foreground='gray')
-        chat.tag_config('text', font=font_normal, foreground='black')
-        chat.tag_config('nick', font=font_bold, foreground='black')
-        chat.tag_config('own_nick', font=font_bold, foreground='green')
-        chat.tag_config('op_nick', font=font_bold, foreground='red')
-        chat.tag_config('bot_nick', font=font_bold, foreground='red')
-        chat.tag_config('error', font=font_normal, foreground="red")
-        chat.tag_config('info', font=font_normal, foreground="blue")
+        tags = (
+            ('timestamp', font_normal, 'gray'),
+            ('text', font_normal, 'black'),
+            ('nick', font_bold, 'black'),
+            ('own_nick', font_bold, 'green'),
+            ('op_nick', font_bold, 'red'),
+            ('bot_nick', font_bold, 'red'),
+            ('error', font_normal, 'red'),
+            ('info', font_normal, 'blue')
+        )
+        for tag, font, color in tags:
+            chat.tag_config(tag, font=font, foreground=color)
         # http://stackoverflow.com/questions/9957810/how-do-you-modify-the-current-selection-length-in-a-tkinter-text-widget
         chat.bind('<Double-1>', lambda e: self.after(20, self.doubleclick))
         self.chat = chat
@@ -295,6 +313,28 @@ class Chat(Frame):
             self.chat.delete('1.0', END)
             self.chat.config(state=DISABLED)
             self.empty = True
+
+
+class UserList(Frame):
+
+    def __init__(self, parent, side, expand, fill):
+        Frame.__init__(self, parent)
+        self.pack(side=side, expand=expand, fill=fill)
+        userlist = Listbox(self, selectmode=SINGLE, setgrid=50)
+        scroll = Scrollbar(self)
+        scroll.config(command=userlist.yview)
+        scroll.pack(side=RIGHT, fill=Y)
+        userlist.config(yscrollcommand=scroll.set)
+        userlist.pack(side=LEFT, expand=YES, fill=BOTH)
+        self.userlist = userlist
+
+    def clear(self):
+        self.userlist.delete(0, END)
+
+    def update(self, users):
+        self.clear()
+        for user in users:
+            self.userlist.insert(END, user)
 
 
 class SettingsWindow(Toplevel):
