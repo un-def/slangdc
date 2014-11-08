@@ -98,6 +98,16 @@ class MsgQueue(queue.Queue):
                     bot     - бот ($BotList)
                     unknown - неизвестно ($MyINFO)
 
+                если никлист не используется (nicklist=False при коннекте), то
+                на каждую команду $MyINFO DCClient.receive() генерирует
+                сообщение (type=MSGNICK, state='join', role='unknown'), даже
+                если пользователь уже онлайн (команда может отправляться
+                периодически, а не только при входе), слежение за приходом/
+                уходом пользователей перекладывается на приложение
+                если nicklist=True, то сообщение генерируется только при
+                фактическом подключении пользователя, а все последующие $MyINFO
+                игнорируются
+
             MSGEND:
                 mput(type=MSGEND)
                 маркер последнего сообщения в очереди (т.е. больше туда ничего
@@ -487,10 +497,13 @@ class DCClient:
                         myinfo = re.match('\$MyINFO \$ALL (.+?) ', data)
                         if myinfo:
                             nick = myinfo.group(1)
+                            if self.msgnick:
+                                # если не используется никлист, то сообщение о приходе генерируем всегда (на каждый $MyINFO)
+                                # иначе - только при отсутствии пользователя в никлисте
+                                if not self.nicklist or not nick in self.nicklist:
+                                    self.message_queue.mput(type=MSGNICK, nick=nick, state='join', role='unknown')
                             if self.nicklist:
                                 self.nicklist.add(nick)
-                            if self.msgnick:
-                                self.message_queue.mput(type=MSGNICK, nick=nick, state='join', role='unknown')
                             return None
             return data
 
