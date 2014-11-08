@@ -10,8 +10,6 @@ import conf
 
 class Gui:
 
-    show_joins = True
-
     def __init__(self):
         self.dc = None
         self.dc_settings = None
@@ -200,9 +198,9 @@ class Gui:
                 elif message['type'] == slangdc.MSGINFO:
                     msg = ('info', "*** " + message['text'])
                 else:   # MSGNICK
-                    if self.show_joins:
+                    if config.settings['show_joins']:
                         if isinstance(message['nick'], list):
-                            nick = "|".join(message['nick'])
+                            nick = str(len(message['nick'])) + " users"
                         else:
                             nick = message['nick']
                         if message['state'] == 'join':
@@ -372,6 +370,7 @@ class SettingsWindow(Toplevel):
             ('timeout', 'int', 'Receive timeout'),
             ('reconnect', 'bool', 'Reconnect'),
             ('reconnect_delay', 'int', 'Reconnect delay'),
+            ('show_joins', 'bool', 'Show joins/parts in chat'),
             ('chat_addr_sep', 'str', 'Chat address separator')
         )
         self.entry_vars = {}

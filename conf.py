@@ -13,6 +13,7 @@ class Config:
         'timeout': 900,
         'reconnect': True,
         'reconnect_delay': 10,
+        'show_joins': False,
         'chat_addr_sep': ':'
     }
 
