@@ -24,7 +24,7 @@ class DCThread(threading.Thread):
         threading.Thread.__init__(self)
 
     def run(self):
-        self.dc.connect(nicklist=True)
+        self.dc.connect(userlist=True)
         while self.dc.connected:
             self.dc.receive(raise_exc=False)
 
@@ -91,15 +91,15 @@ class InputThread(threading.Thread):
                     self.dc.disconnect()
                     return
                 elif message == '/usercount':
-                    print("users: ", len(dc.nicklist))
-                elif message == '/nicklist':
-                    for nmb, nick in enumerate(sorted(dc.nicklist), 1):
+                    print("users: ", len(dc.userlist))
+                elif message == '/userlist':
+                    for nmb, nick in enumerate(sorted(dc.userlist), 1):
                         print("{0: 4d} {1}".format(nmb, nick))
                 elif message == '/oplist':
-                    oplist_str = " ".join(dc.nicklist.ops) if dc.nicklist.ops else "none"
+                    oplist_str = " ".join(dc.userlist.ops) if dc.userlist.ops else "none"
                     print("ops:", oplist_str)
                 elif message == '/botlist':
-                    botlist_str = " ".join(dc.nicklist.bots) if dc.nicklist.bots else "none"
+                    botlist_str = " ".join(dc.userlist.bots) if dc.userlist.bots else "none"
                     print("bots:", botlist_str)
                 else:
                     dc.chat_send(message)
