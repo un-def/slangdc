@@ -297,8 +297,27 @@ class DCClient:
             return True
 
         self.connecting = True
-        self.userlist = None
+        if msgnick and not userlist:
+            self._nicklist = set()
+        ''' если не используется (userlist=False) список пользователей (инстанс
+            UserList), но ожидаются сообщения о приходе/уходе пользователей
+            (msgnick=True), сохраним список ников из $NickList в множестве
+            self._nicklist (только для внутренного использования), а при
+            получении $MyINFO будем проверять наличие ника в этом множестве
+            и генерировать MSGNICK только в случае, если это новый пользователь
+            (при использовании UserList делаем почти то же самое, но юзерлист
+            поддерживается в актуальном состоянии всегда и учитываюстя
+            опы/боты, а _nicklist наполняется только один раз - по команде
+            $NickList и в последующем только опустошается по командам $Quit)
+            // воркэраунд для больших хабов (обычно на PtokaX), которые после
+            $NickList отдают $MyINFO для каждого пользователя - приложение
+            может очень долго забирать по одному каждое из тысяч сообщений
+            MSGNICK (на каждый $MyINFO), хотя чуть ранее актуальный список
+            пользователей уже был получен одним сообщением MSGNICK
+            (из $NickList)
+        '''
         self.msgnick = msgnick
+        self.userlist = None
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.message_queue.mput(type=MSGINFO, text="connecting to {0}".format(self.address))
         try:
@@ -468,6 +487,8 @@ class DCClient:
                         self.userlist.remove(nick)
                     if self.msgnick:
                         self.message_queue.mput(type=MSGNICK, nick=nick, state='part')
+                        if not self.userlist:   # внутренний _nicklist (только при msgnick and not nicklist; см. комментарий в connect())
+                            self._nicklist.discard(nick)
                     return None
                 else:
                     pm = re.fullmatch('\$To: .+? From: (.+?) \$(.+)', data, flags=re.DOTALL)
@@ -492,6 +513,8 @@ class DCClient:
                                 list_.pop()
                             if self.userlist:
                                 self.userlist.add(list_, list_type)
+                            elif self.msgnick and list_type == 'user':   # если не используется юзерлист,
+                                self._nicklist = set(list_)   # сохраняем $NickList в множестве _nicklist
                             if self.msgnick:
                                 self.message_queue.mput(type=MSGNICK, nick=list_, state='join', role=list_type)
                             return None
@@ -499,9 +522,11 @@ class DCClient:
                         if myinfo:
                             nick = myinfo.group(1)
                             if self.msgnick:
-                                # если не используется юзерлист, то сообщение о приходе генерируем всегда (на каждый $MyINFO)
-                                # иначе - только при отсутствии пользователя в юзерлисте
-                                if not self.userlist or not nick in self.userlist:
+                                # если не используется юзерлист, то проверяем наличие пользователя в специальном множестве
+                                # _nicklist (это не полноценный юзерлист, а лишь список из команды $NickList - список
+                                # пользователей на момент коннекта к хабу за вычетом ушедших (из команд $Quit))
+                                check_in = self.userlist if self.userlist else self._nicklist
+                                if not nick in check_in:
                                     self.message_queue.mput(type=MSGNICK, nick=nick, state='join', role='unknown')
                             if self.userlist:
                                 self.userlist.add(nick)
