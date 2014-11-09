@@ -46,8 +46,10 @@ class Gui:
         quick_address.bind('<Return>', self.quick_connect)
         self.quick_address = quick_address
         Button(quick_frame, text="Quick connect", command=self.quick_connect).pack(side=LEFT)
+        # statusbar
+        self.statusbar = StatusBar(main_frame, side=BOTTOM)
         # message entry, send button
-        msg_frame = Frame(main_frame)
+        msg_frame = Frame(main_frame, pady=5)
         msg_frame.pack(side=BOTTOM, fill=X)
         msg_box = Entry(msg_frame)
         msg_box.pack(side=LEFT, expand=YES, fill=X)
@@ -148,9 +150,11 @@ class Gui:
     def users_loop(self):
         if self.dc and (self.dc.connecting or self.dc.connected):
             self.userlist.update(sorted(self.users.op))
+            self.statusbar.set('usercount', self.users.count())
             self.root.after(1000, self.users_loop)
         else:
             self.userlist.clear()
+            self.statusbar.set('usercount', '')
 
     def chat_loop(self, dc):
         ''' небольшой трюк - ссылку на инстанс DCClient передаём не через
@@ -322,6 +326,29 @@ class Chat(Frame):
             self.chat.delete('1.0', END)
             self.chat.config(state=DISABLED)
             self.empty = True
+
+
+class StatusBar(Frame):
+
+    def __init__(self, parent, side, expand=YES, fill=X):
+
+        Frame.__init__(self, parent, borderwidth=2, relief=GROOVE)
+        self.pack(side=side, expand=expand, fill=fill)
+        self.vars_ = {}
+        labels = (
+            ('Hub name', 0),
+            ('Hub topic', 0),
+            ('Usercount', 0)
+        )
+        for col, (label, width) in enumerate(labels):
+            var = StringVar()
+            Label(self, textvariable=var, width=width).grid(row=0, column=col, sticky=W)
+            self.columnconfigure(col, weight=1)
+            var_name = label.replace(' ', '').lower()
+            self.vars_[var_name] = (var, label)
+            self.set(var_name, '')
+    def set(self, var, value):
+        self.vars_[var][0].set(self.vars_[var][1] + ": " + str(value))
 
 
 class UserList(Frame):
