@@ -95,6 +95,8 @@ class Gui:
         if self.dc and self.dc.connected:
             self.dc.disconnect()
             self.dc = None
+            self.statusbar.set('hubname', '')
+            self.statusbar.set('hubtopic', '')
         self.cancel_reconnect_callback()
 
     def reconnect(self):
@@ -192,6 +194,10 @@ class Gui:
                     msg = ('error', "*** " + message['text'])
                 elif message['type'] == slangdc.MSGINFO:
                     msg = ('info', "*** " + message['text'])
+                    if message['text'].startswith('HubName: '):
+                        self.statusbar.set('hubname', self.dc.hubname)
+                    elif message['text'].startswith('HubTopic: '):
+                        self.statusbar.set('hubtopic', self.dc.hubtopic)
                 elif message['type'] == slangdc.MSGNICK:
                     msg = None
                     if message['state'] == 'join':
@@ -330,25 +336,27 @@ class Chat(Frame):
 
 class StatusBar(Frame):
 
-    def __init__(self, parent, side, expand=YES, fill=X):
+    def __init__(self, parent, side, expand=NO, fill=X):
 
-        Frame.__init__(self, parent, borderwidth=2, relief=GROOVE)
+        Frame.__init__(self, parent, height=24)
         self.pack(side=side, expand=expand, fill=fill)
-        self.vars_ = {}
+        self._vars = {}
         labels = (
-            ('Hub name', 0),
-            ('Hub topic', 0),
-            ('Usercount', 0)
+            ('Hub name', 0.4),
+            ('Hub topic', 0.4),
+            ('Usercount', 0.2)
         )
+        relx=0
         for col, (label, width) in enumerate(labels):
             var = StringVar()
-            Label(self, textvariable=var, width=width).grid(row=0, column=col, sticky=W)
-            self.columnconfigure(col, weight=1)
+            Label(self, textvariable=var, anchor=W, padx=3, borderwidth=2, relief=GROOVE).place(relx=relx, rely=0.5, relwidth=width, anchor=W)
+            relx += width
             var_name = label.replace(' ', '').lower()
-            self.vars_[var_name] = (var, label)
+            self._vars[var_name] = (var, label)
             self.set(var_name, '')
+
     def set(self, var, value):
-        self.vars_[var][0].set(self.vars_[var][1] + ": " + str(value))
+        self._vars[var][0].set(self._vars[var][1] + ": " + str(value))
 
 
 class UserList(Frame):
