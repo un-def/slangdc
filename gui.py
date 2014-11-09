@@ -71,8 +71,7 @@ class Gui:
         return pass_window.password.get()
 
     def insert_nick(self, check_nick):
-        if self.dc and check_nick != self.dc.nick and self.dc.nicklist:
-            if check_nick in self.dc.nicklist:
+        if self.dc and check_nick != self.dc.nick and self.users.check(check_nick):
                 if self.msg_box.index('insert') == 0:   # если курсор стоит в начале поля ввода,
                     check_nick = check_nick + config.settings['chat_addr_sep'] + ' '   # то вставляем ник как обращение
                 self.msg_box.insert('insert', check_nick)
@@ -138,15 +137,8 @@ class Gui:
                 if etext.startswith('/pm '):
                     nick, text = etext[4:].split(' ', 1)
                     self.dc.pm_send(nick, text)
-                if etext.startswith('/user '):
-                    nick = etext[6:]
-                    print("user", nick, "is", "online" if nick in self.dc.nicklist else "offline")
-                elif etext == '/oplist':
-                    print("ops:", " ".join(sorted(self.dc.nicklist.ops)))
-                elif etext == '/botlist':
-                    print("bots:", " ".join(sorted(self.dc.nicklist.bots)))
                 elif etext == '/usercount':
-                    print("usercount:", len(self.dc.nicklist))
+                    print("usercount:", self.users.count())
                 elif etext == '/quit':
                     self.quit()
                 elif not etext.startswith('/') or etext.startswith('/me '):
@@ -155,9 +147,7 @@ class Gui:
 
     def run_users_loop(self):
         if self.dc and (self.dc.connecting or self.dc.connected):
-            print("    usercount:", self.users.count()) ###
-            if self.dc.nicklist:
-                self.userlist.update(sorted(self.dc.nicklist.ops))
+            self.userlist.update(sorted(self.users.op))
             self.root.after(1000, self.run_users_loop)
         else:
             self.userlist.clear()
@@ -179,11 +169,10 @@ class Gui:
                     nick_tag = 'nick'
                     if message['nick'] == dc.nick:
                         nick_tag = 'own_nick'
-                    elif dc.nicklist:
-                        if message['nick'] in dc.nicklist.ops:
-                            nick_tag = 'op_nick'
-                        elif message['nick'] in dc.nicklist.bots:
-                            nick_tag = 'bot_nick'
+                    else:
+                        nick_role = self.users.check(message['nick'])
+                        if nick_role:
+                            nick_tag = nick_role + '_nick'
                     if not message['me']:
                         msg = ('text', "<", nick_tag, message['nick'], 'text', "> " + message['text'])
                     else:
@@ -438,7 +427,7 @@ class DCThread(threading.Thread):
         threading.Thread.__init__(self, name=self.__class__.__name__)
 
     def run(self):
-        self.dc.connect(nicklist=True, msgnick=True, pass_callback=self.pass_callback)
+        self.dc.connect(nicklist=False, msgnick=True, pass_callback=self.pass_callback)
         while self.dc.connected:
             self.dc.receive(raise_exc=False)
         if self.onclose_callback:
@@ -456,6 +445,7 @@ class Users:
         self.user = []
         self.op = []
         self.bot = []
+        self.lock = threading.Lock()
 
     def add(self, nicks, role):
         if isinstance(nicks, str):
@@ -464,7 +454,7 @@ class Users:
             for nick in nicks:
                 if nick not in self.bot and nick not in self.op and nick not in self.user:
                     ### добавить nick в self.user
-                    self.user.append(nick)
+                    with self.lock: self.user.append(nick)
                     ### известить о новом user
                     self._show(nick, 'join', 'user')
                     pass
@@ -479,12 +469,12 @@ class Users:
                     new_nick = False
                     if nick not in add_to:
                         ### добавить в add_to
-                        add_to.append(nick)
+                        with self.lock: add_to.append(nick)
                         new_nick = True
                     for other in remove_from:
                         if nick in other:
                             ### удалить из other
-                            other.remove(nick)
+                            with self.lock: other.remove(nick)
                             new_nick = False
                     if new_nick:
                         ### известить о новом role
@@ -497,11 +487,11 @@ class Users:
                     # (т.е. приоритет роли bot выше, чем op)
                     if nick not in self.op and nick not in self.bot:
                         ### добавить в self.op
-                        self.op.append(nick)
+                        with self.lock: self.op.append(nick)
                         new_nick = True
                     if nick in self.user:
                         ### удалить из self.user
-                        self.user.remove(nick)
+                        with self.lock: self.user.remove(nick)
                         new_nick = False
                     if new_nick:
                         ### известить о новом role
@@ -515,7 +505,8 @@ class Users:
             for check_list in (self.user, self.op, self.bot):
                 if nick in check_list:
                     ### удалить из списка
-                    check_list.remove(nick)
+                    with self.lock:
+                        check_list.remove(nick)
                     ### известить об уходе
                     self._show(nick, 'part')
 
@@ -526,9 +517,16 @@ class Users:
         else:
             print("---", nick)
 
+    def check(self, nick):
+        with self.lock:
+            for list_ in ('bot', 'op', 'user'):
+                if nick in getattr(self, list_):
+                    return list_
+            return False
+
     def count(self):
-        count = len(self.user) + len(self.op) + len(self.bot)
-        return count
+        with self.lock:
+            return len(self.user) + len(self.op) + len(self.bot)
 
 
 config = conf.Config()
