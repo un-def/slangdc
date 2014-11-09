@@ -84,6 +84,7 @@ class Gui:
         self._reconnect = True if config.settings['reconnect'] and config.settings['reconnect_delay'] > 0 else False
         if self.dc_settings and (not self.dc or not self.dc.connecting):   # если ещё не подключались или не подключаемся в данный момент
             self.dc = slangdc.DCClient(**self.dc_settings)
+            self.users = Users() ###
             self.run_chat_loop(self.dc)
             self.root.after(100, self.run_users_loop)
             DCThread(self.dc, pass_callback=self.get_pass, onclose_callback=self.reconnect).start()
@@ -154,6 +155,7 @@ class Gui:
 
     def run_users_loop(self):
         if self.dc and (self.dc.connecting or self.dc.connected):
+            print("    usercount:", self.users.count()) ###
             if self.dc.nicklist:
                 self.userlist.update(sorted(self.dc.nicklist.ops))
             self.root.after(1000, self.run_users_loop)
@@ -197,19 +199,12 @@ class Gui:
                     msg = ('error', "*** " + message['text'])
                 elif message['type'] == slangdc.MSGINFO:
                     msg = ('info', "*** " + message['text'])
-                else:   # MSGNICK
-                    if config.settings['show_joins']:
-                        if isinstance(message['nick'], list):
-                            nick = str(len(message['nick'])) + " users"
-                        else:
-                            nick = message['nick']
-                        if message['state'] == 'join':
-                            role = " as " + message['role']
-                        else:
-                            role = ""
-                        msg = ('info', "### {0}: {1}{2}".format(message['state'], nick, role))
+                elif message['type'] == slangdc.MSGNICK:
+                    msg = None
+                    if message['state'] == 'join':
+                        self.users.add(message['nick'], message['role'])
                     else:
-                        msg = None
+                        self.users.remove(message['nick'])
                 if msg:
                     timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
                     self.chat.add_message(('timestamp', timestamp) + msg)
@@ -448,6 +443,92 @@ class DCThread(threading.Thread):
             self.dc.receive(raise_exc=False)
         if self.onclose_callback:
             self.onclose_callback()
+
+
+
+
+
+
+
+class Users:
+
+    def __init__(self):
+        self.user = []
+        self.op = []
+        self.bot = []
+
+    def add(self, nicks, role):
+        if isinstance(nicks, str):
+            nicks = (nicks,)   # для простоты из одного ника сделаем коллекцию
+        if role == 'unknown':   # из команды $MyINFO
+            for nick in nicks:
+                if nick not in self.bot and nick not in self.op and nick not in self.user:
+                    ### добавить nick в self.user
+                    self.user.append(nick)
+                    ### известить о новом user
+                    self._show(nick, 'join', 'user')
+                    pass
+        else:
+            if role == 'user' or role == 'bot':
+                add_to = getattr(self, role)
+                if role == 'user':
+                    remove_from = (self.op, self.bot)
+                else:
+                    remove_from = (self.user, self.op)
+                for nick in nicks:
+                    new_nick = False
+                    if nick not in add_to:
+                        ### добавить в add_to
+                        add_to.append(nick)
+                        new_nick = True
+                    for other in remove_from:
+                        if nick in other:
+                            ### удалить из other
+                            other.remove(nick)
+                            new_nick = False
+                    if new_nick:
+                        ### известить о новом role
+                        self._show(nick, 'join', role)
+                        pass
+            else:   # role == 'op'
+                for nick in nicks:
+                    new_nick = False
+                    # если ник уже в списке ботов, то не оверрайдим его роль опом
+                    # (т.е. приоритет роли bot выше, чем op)
+                    if nick not in self.op and nick not in self.bot:
+                        ### добавить в self.op
+                        self.op.append(nick)
+                        new_nick = True
+                    if nick in self.user:
+                        ### удалить из self.user
+                        self.user.remove(nick)
+                        new_nick = False
+                    if new_nick:
+                        ### известить о новом role
+                        self._show(nick, 'join', 'op')
+                        pass
+
+    def remove(self, nicks):
+        if isinstance(nicks, str):
+            nicks = (nicks,)   # для простоты из одного ника сделаем коллекцию
+        for nick in nicks:
+            for check_list in (self.user, self.op, self.bot):
+                if nick in check_list:
+                    ### удалить из списка
+                    check_list.remove(nick)
+                    ### известить об уходе
+                    self._show(nick, 'part')
+
+    def _show(self, nick, state, role=None):
+        if state == 'join':
+            print("+++", nick, "\tas", role)
+            pass
+        else:
+            print("---", nick)
+
+    def count(self):
+        count = len(self.user) + len(self.op) + len(self.bot)
+        return count
 
 
 config = conf.Config()
