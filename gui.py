@@ -59,7 +59,7 @@ class Gui:
         chat_users_frame.pack(side=TOP, expand=YES, fill=BOTH)
         self.userlist = UserList(chat_users_frame, side=RIGHT, expand=NO, fill=Y)
         self.chat = Chat(chat_users_frame, side=LEFT, expand=YES, fill=BOTH, doubleclick_callback=self.insert_nick)
-        self.root.after(500, self.run_users_loop)   ###
+        self.root.after(500, self.users_loop)
 
     def mainloop(self):
         self.root.mainloop()
@@ -83,9 +83,9 @@ class Gui:
         self._reconnect = True if config.settings['reconnect'] and config.settings['reconnect_delay'] > 0 else False
         if self.dc_settings and (not self.dc or not self.dc.connecting):   # если ещё не подключались или не подключаемся в данный момент
             self.dc = slangdc.DCClient(**self.dc_settings)
-            self.users = Users() ###
-            self.run_chat_loop(self.dc)
-            self.root.after(100, self.run_users_loop)
+            self.users = Users()
+            self.chat_loop(self.dc)
+            self.root.after(100, self.users_loop)
             DCThread(self.dc, pass_callback=self.get_pass, onclose_callback=self.reconnect).start()
 
     def disconnect(self):
@@ -145,14 +145,14 @@ class Gui:
                     self.dc.chat_send(etext)
                 self.msg_box.delete(0, END)
 
-    def run_users_loop(self):
+    def users_loop(self):
         if self.dc and (self.dc.connecting or self.dc.connected):
             self.userlist.update(sorted(self.users.op))
-            self.root.after(1000, self.run_users_loop)
+            self.root.after(1000, self.users_loop)
         else:
             self.userlist.clear()
 
-    def run_chat_loop(self, dc):
+    def chat_loop(self, dc):
         ''' небольшой трюк - ссылку на инстанс DCClient передаём не через
             атрибуты (self.dc), а через аргумент функции; после дисконнекта
             (self.dc = None) инстанс продолжит существовать, пока передаётся
@@ -166,7 +166,7 @@ class Gui:
             else:
                 if message['type'] == slangdc.MSGCHAT:
                     message['text'] = message['text'].replace('\r', '')
-                    nick_tag = 'nick'
+                    nick_tag = 'user_nick'
                     if message['nick'] == dc.nick:
                         nick_tag = 'own_nick'
                     else:
@@ -199,15 +199,15 @@ class Gui:
                             return_new = False
                         new = self.users.add(message['nick'], message['role'], return_new)
                         if new:
-                            msg = ('info', "+++ joins: " + new[0])   # Users.add() всегда возвращает list, даже есть передали str
+                            msg = ('info', "*** joins: " + new[0])   # Users.add() всегда возвращает list, даже есть передали str
                     else:
                         self.users.remove(message['nick'])
                         if config.settings['show_joins'] and isinstance(message['nick'], str):
-                            msg = ('info', "--- parts: " + message['nick'])
+                            msg = ('info', "*** parts: " + message['nick'])
                 if msg:
                     timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
                     self.chat.add_message(('timestamp', timestamp) + msg)
-        self.root.after(10, self.run_chat_loop, dc)
+        self.root.after(10, self.chat_loop, dc)
 
 
 class Chat(Frame):
@@ -236,8 +236,8 @@ class Chat(Frame):
         tags = (
             ('timestamp', font_normal, 'gray'),
             ('text', font_normal, 'black'),
-            ('nick', font_bold, 'black'),
             ('own_nick', font_bold, 'green'),
+            ('user_nick', font_bold, 'black'),
             ('op_nick', font_bold, 'red'),
             ('bot_nick', font_bold, 'red'),
             ('error', font_normal, 'red'),
@@ -428,24 +428,9 @@ class PassWindow(Toplevel):
             self.destroy()
 
 
-class DCThread(threading.Thread):
-
-    def __init__(self, dc, pass_callback=None, onclose_callback=None):
-        self.dc = dc
-        self.pass_callback=pass_callback
-        self.onclose_callback=onclose_callback
-        threading.Thread.__init__(self, name=self.__class__.__name__)
-
-    def run(self):
-        self.dc.connect(nicklist=False, msgnick=True, pass_callback=self.pass_callback)
-        while self.dc.connected:
-            self.dc.receive(raise_exc=False)
-        if self.onclose_callback:
-            self.onclose_callback()
-
-
 class Users:
-
+    ''' хранилище ников в виде списков (list) Users.user, Users.op, User.bot
+    '''
     def __init__(self):
         self.user = []
         self.op = []
@@ -516,6 +501,22 @@ class Users:
     def count(self):
         with self.lock:
             return len(self.user) + len(self.op) + len(self.bot)
+
+
+class DCThread(threading.Thread):
+
+    def __init__(self, dc, pass_callback=None, onclose_callback=None):
+        self.dc = dc
+        self.pass_callback=pass_callback
+        self.onclose_callback=onclose_callback
+        threading.Thread.__init__(self, name=self.__class__.__name__)
+
+    def run(self):
+        self.dc.connect(userlist=False, msgnick=True, pass_callback=self.pass_callback)
+        while self.dc.connected:
+            self.dc.receive(raise_exc=False)
+        if self.onclose_callback:
+            self.onclose_callback()
 
 
 config = conf.Config()
