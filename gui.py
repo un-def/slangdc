@@ -191,9 +191,19 @@ class Gui:
                 elif message['type'] == slangdc.MSGNICK:
                     msg = None
                     if message['state'] == 'join':
-                        self.users.add(message['nick'], message['role'])
+                        # если включён показ прихода/ухода юзеров и получили только один ник, а не список,
+                        # то будем выводить в чат нотификацию о пришедшем пользователе
+                        if config.settings['show_joins'] and isinstance(message['nick'], str):
+                            return_new = True
+                        else:
+                            return_new = False
+                        new = self.users.add(message['nick'], message['role'], return_new)
+                        if new:
+                            msg = ('info', "+++ joins: " + new[0])   # Users.add() всегда возвращает list, даже есть передали str
                     else:
                         self.users.remove(message['nick'])
+                        if config.settings['show_joins'] and isinstance(message['nick'], str):
+                            msg = ('info', "--- parts: " + message['nick'])
                 if msg:
                     timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
                     self.chat.add_message(('timestamp', timestamp) + msg)
@@ -434,11 +444,6 @@ class DCThread(threading.Thread):
             self.onclose_callback()
 
 
-
-
-
-
-
 class Users:
 
     def __init__(self):
@@ -447,75 +452,59 @@ class Users:
         self.bot = []
         self.lock = threading.Lock()
 
-    def add(self, nicks, role):
+    def _add(self, nick, role):
+        with self.lock: getattr(self, role).append(nick)
+
+    def _remove(self, nick, role):
+        with self.lock: getattr(self, role).remove(nick)
+
+    def add(self, nicks, role, return_new=False):   # return_new=True - возвращать список новых (вошедших) пользователей
+        if return_new: new = []
         if isinstance(nicks, str):
             nicks = (nicks,)   # для простоты из одного ника сделаем коллекцию
         if role == 'unknown':   # из команды $MyINFO
             for nick in nicks:
                 if nick not in self.bot and nick not in self.op and nick not in self.user:
-                    ### добавить nick в self.user
-                    with self.lock: self.user.append(nick)
-                    ### известить о новом user
-                    self._show(nick, 'join', 'user')
-                    pass
+                    self._add(nick, 'user')
+                    if return_new: new.append(nick)
         else:
             if role == 'user' or role == 'bot':
-                add_to = getattr(self, role)
                 if role == 'user':
-                    remove_from = (self.op, self.bot)
+                    remove_from = ('op', 'bot')
                 else:
-                    remove_from = (self.user, self.op)
+                    remove_from = ('user', 'op')
                 for nick in nicks:
                     new_nick = False
-                    if nick not in add_to:
-                        ### добавить в add_to
-                        with self.lock: add_to.append(nick)
+                    if nick not in getattr(self, role):
+                        self._add(nick, role)
                         new_nick = True
                     for other in remove_from:
-                        if nick in other:
-                            ### удалить из other
-                            with self.lock: other.remove(nick)
+                        if nick in getattr(self, other):
+                            self._remove(nick, other)
                             new_nick = False
-                    if new_nick:
-                        ### известить о новом role
-                        self._show(nick, 'join', role)
-                        pass
+                    if new_nick and return_new: new.append(nick)
             else:   # role == 'op'
                 for nick in nicks:
                     new_nick = False
                     # если ник уже в списке ботов, то не оверрайдим его роль опом
                     # (т.е. приоритет роли bot выше, чем op)
                     if nick not in self.op and nick not in self.bot:
-                        ### добавить в self.op
-                        with self.lock: self.op.append(nick)
+                        self._add(nick, 'op')
                         new_nick = True
                     if nick in self.user:
-                        ### удалить из self.user
-                        with self.lock: self.user.remove(nick)
+                        self._remove(nick, 'user')
                         new_nick = False
-                    if new_nick:
-                        ### известить о новом role
-                        self._show(nick, 'join', 'op')
-                        pass
+                    if new_nick and return_new: new.append(nick)
+        if return_new: return new
 
     def remove(self, nicks):
         if isinstance(nicks, str):
             nicks = (nicks,)   # для простоты из одного ника сделаем коллекцию
         for nick in nicks:
-            for check_list in (self.user, self.op, self.bot):
-                if nick in check_list:
-                    ### удалить из списка
-                    with self.lock:
-                        check_list.remove(nick)
-                    ### известить об уходе
-                    self._show(nick, 'part')
-
-    def _show(self, nick, state, role=None):
-        if state == 'join':
-            print("+++", nick, "\tas", role)
-            pass
-        else:
-            print("---", nick)
+            for check_list in ('user', 'op', 'bot'):
+                if nick in getattr(self, check_list):
+                    self._remove(nick, check_list)
+                    break
 
     def check(self, nick):
         with self.lock:
