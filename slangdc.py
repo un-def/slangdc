@@ -329,7 +329,8 @@ class DCClient:
         '''
         self.msgnick = msgnick
         self.userlist = None
-        self.supports = 'HubTopic' if supports is None else supports.strip()
+        if isinstance(supports, str): supports = supports.strip()
+        self.supports = 'HubTopic' if supports is None else supports
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.message_queue.mput(type=MSGINFO, text="connecting to {0}".format(self.address))
         try:
