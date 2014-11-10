@@ -2,6 +2,7 @@
 import time
 import re
 import threading
+import queue
 from datetime import datetime
 from tkinter import *
 import slangdc
@@ -13,6 +14,7 @@ class Gui:
     def __init__(self):
         self.dc = None
         self.dc_settings = None
+        self.users_queue = queue.Queue()   ###
         self.reconnect_callback_id = None
         root = Tk()
         root.title("slangdc.Tk")
@@ -85,7 +87,8 @@ class Gui:
         self._reconnect = True if config.settings['reconnect'] and config.settings['reconnect_delay'] > 0 else False
         if self.dc_settings and (not self.dc or not self.dc.connecting):   # если ещё не подключались или не подключаемся в данный момент
             self.dc = slangdc.DCClient(**self.dc_settings)
-            self.users = Users()
+            self.users = Users(self.users_queue)   ###
+            self.userlist.clear()
             self.chat_loop(self.dc)
             self.root.after(100, self.users_loop)
             DCThread(self.dc, pass_callback=self.get_pass, onclose_callback=self.reconnect).start()
@@ -151,9 +154,19 @@ class Gui:
 
     def users_loop(self):
         if self.dc and (self.dc.connecting or self.dc.connected):
-            self.userlist.update(sorted(self.users.op))
+            try:
+                item = self.users_queue.get(block=False)
+            except queue.Empty:
+                pass
+            else:
+                action, index = item[0], item[1]
+                if action == 'add':
+                    nicks, role = item[2], item[3]
+                    self.userlist.add(index, nicks, role)
+                else:
+                    self.userlist.remove(index)
             self.statusbar.set('usercount', self.users.count())
-            self.root.after(1000, self.users_loop)
+            self.root.after(500, self.users_loop)
         else:
             self.userlist.clear()
             self.statusbar.set('usercount', '')
@@ -209,7 +222,7 @@ class Gui:
                             return_new = False
                         new = self.users.add(message['nick'], message['role'], return_new)
                         if new:
-                            msg = ('info', "*** joins: " + new[0])   # Users.add() всегда возвращает list, даже есть передали str
+                            msg = ('info', "*** joins: " + new)
                     else:
                         self.users.remove(message['nick'])
                         if config.settings['show_joins'] and isinstance(message['nick'], str):
@@ -364,21 +377,32 @@ class UserList(Frame):
     def __init__(self, parent, side, expand, fill):
         Frame.__init__(self, parent)
         self.pack(side=side, expand=expand, fill=fill)
-        userlist = Listbox(self, selectmode=SINGLE, setgrid=50)
+        userlist = Listbox(self, selectmode=SINGLE, width=25)
         scroll = Scrollbar(self)
         scroll.config(command=userlist.yview)
         scroll.pack(side=RIGHT, fill=Y)
         userlist.config(yscrollcommand=scroll.set)
         userlist.pack(side=LEFT, expand=YES, fill=BOTH)
         self.userlist = userlist
+        self.colors = {
+            'user': 'black',
+            'op': 'red',
+            'bot': 'yellow'
+        }
+
+    def add(self, index, users, role):
+        if isinstance(users, str):
+            users = (users,)
+        for user in users:
+            self.userlist.insert(index, user)
+            self.userlist.itemconfig(index, foreground=self.colors[role])
+            index += 1
+
+    def remove(self, index):
+        self.userlist.delete(index)
 
     def clear(self):
         self.userlist.delete(0, END)
-
-    def update(self, users):
-        self.clear()
-        for user in users:
-            self.userlist.insert(END, user)
 
 
 class SettingsWindow(Toplevel):
@@ -466,65 +490,64 @@ class PassWindow(Toplevel):
 class Users:
     ''' хранилище ников в виде списков (list) Users.user, Users.op, User.bot
     '''
-    def __init__(self):
+    def __init__(self, users_queue):
+        self.users_queue = users_queue
         self.user = []
         self.op = []
         self.bot = []
         self.lock = threading.Lock()
 
-    def _add(self, nick, role):
-        with self.lock: getattr(self, role).append(nick)
-
-    def _remove(self, nick, role):
-        with self.lock: getattr(self, role).remove(nick)
+    def _offset(self, role):   # вычисляет оффсет нужной части списка юзеров
+        if role == 'op':
+            return 0
+        elif role == 'bot':
+            return len(self.op)
+        else:
+            return len(self.op) + len(self.bot)
 
     def add(self, nicks, role, return_new=False):   # return_new=True - возвращать список новых (вошедших) пользователей
-        if return_new: new = []
         if isinstance(nicks, str):
-            nicks = (nicks,)   # для простоты из одного ника сделаем коллекцию
-        if role == 'unknown':   # из команды $MyINFO
-            for nick in nicks:
-                if nick not in self.bot and nick not in self.op and nick not in self.user:
-                    self._add(nick, 'user')
-                    if return_new: new.append(nick)
-        else:
-            if role == 'user' or role == 'bot':
-                if role == 'user':
-                    remove_from = ('op', 'bot')
-                else:
-                    remove_from = ('user', 'op')
-                for nick in nicks:
-                    new_nick = False
-                    if nick not in getattr(self, role):
-                        self._add(nick, role)
-                        new_nick = True
-                    for other in remove_from:
-                        if nick in getattr(self, other):
-                            self._remove(nick, other)
-                            new_nick = False
-                    if new_nick and return_new: new.append(nick)
-            else:   # role == 'op'
-                for nick in nicks:
-                    new_nick = False
-                    # если ник уже в списке ботов, то не оверрайдим его роль опом
-                    # (т.е. приоритет роли bot выше, чем op)
-                    if nick not in self.op and nick not in self.bot:
-                        self._add(nick, 'op')
-                        new_nick = True
-                    if nick in self.user:
-                        self._remove(nick, 'user')
-                        new_nick = False
-                    if new_nick and return_new: new.append(nick)
-        if return_new: return new
+            role_ = 'user' if role == 'unknown' else role
+            to_list = getattr(self, role_)
+            if (role == 'unknown' and nicks not in self.bot and nicks not in self.op and nicks not in self.user) or (role != 'unknown' and nicks not in to_list):
+                with self.lock:
+                    to_list.append(nicks)
+                    to_list.sort(key=str.lower)
+                index = self._offset(role_) + to_list.index(nicks)
+                self.users_queue.put(('add', index, nicks, role_))
+                ### TODO: удалить юзера из двух других списков, если он был добавлен в третий
+        else:   # если передали список
+            new_list = sorted(nicks, key=str.lower)
+            with self.lock:
+                setattr(self, role, new_list.copy())
+            self.users_queue.put(('add', self._offset(role), new_list, role))   ###
+            #$new = nicks   # возвращаем обратно ссылку на переданный список ;)
 
-    def remove(self, nicks):
-        if isinstance(nicks, str):
-            nicks = (nicks,)   # для простоты из одного ника сделаем коллекцию
-        for nick in nicks:
-            for check_list in ('user', 'op', 'bot'):
-                if nick in getattr(self, check_list):
-                    self._remove(nick, check_list)
-                    break
+            if role == 'bot':
+                check_another = ('op', 'user')
+            elif role == 'op':
+                check_another = ('user',)
+            else:
+                check_another = ()
+
+            for another in check_another:
+                for nick in new_list:
+                    self.remove_from(nick, another)
+
+    def remove_from(self, nick, from_):   # from='user|op|bot'
+        from_list = getattr(self, from_)
+        try:
+            index = from_list.index(nick) + self._offset(from_)
+        except ValueError:
+            pass
+        else:
+            self.users_queue.put(('remove', index))   ###
+            with self.lock:
+                from_list.remove(nick)
+
+    def remove(self, nick):   # удалить из всех списков
+        for from_ in ('user', 'op', 'bot'):
+            self.remove_from(nick, from_)
 
     def check(self, nick):
         with self.lock:
