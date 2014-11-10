@@ -14,8 +14,8 @@ class Gui:
     def __init__(self):
         self.dc = None
         self.dc_settings = None
-        self.users_queue = queue.Queue()   ###
         self.reconnect_callback_id = None
+        self.userlist_statusbar_callback_id = None
         root = Tk()
         root.title("slangdc.Tk")
         root.protocol('WM_DELETE_WINDOW', self.quit)
@@ -63,7 +63,7 @@ class Gui:
         chat_users_frame.pack(side=TOP, expand=YES, fill=BOTH)
         self.userlist = UserList(chat_users_frame, side=RIGHT, expand=NO, fill=Y)
         self.chat = Chat(chat_users_frame, side=LEFT, expand=YES, fill=BOTH, doubleclick_callback=self.insert_nick)
-        self.root.after(500, self.users_loop)
+        self.root.after(1000, self.userlist_statusbar_loop)
 
     def mainloop(self):
         self.root.mainloop()
@@ -87,10 +87,10 @@ class Gui:
         self._reconnect = True if config.settings['reconnect'] and config.settings['reconnect_delay'] > 0 else False
         if self.dc_settings and (not self.dc or not self.dc.connecting):   # если ещё не подключались или не подключаемся в данный момент
             self.dc = slangdc.DCClient(**self.dc_settings)
-            self.users = Users(self.users_queue)   ###
+            self.users = Users()
             self.userlist.clear()
             self.chat_loop(self.dc)
-            self.root.after(100, self.users_loop)
+            self.userlist_statusbar_callback_id = self.root.after(100, self.userlist_statusbar_loop)
             DCThread(self.dc, pass_callback=self.get_pass, onclose_callback=self.reconnect).start()
 
     def disconnect(self):
@@ -101,6 +101,8 @@ class Gui:
             self.statusbar.set('hubname', '')
             self.statusbar.set('hubtopic', '')
         self.cancel_reconnect_callback()
+        if self.userlist_statusbar_callback_id:
+            self.root.after_cancel(self.userlist_statusbar_callback_id)
 
     def reconnect(self):
         if self._reconnect:
@@ -116,7 +118,6 @@ class Gui:
 
     def quick_connect(self, event=None):
         address = self.quick_address.get().strip().rstrip('/').split('//')[-1]
-
         if address:
             self.quick_address.delete(0, END)
             self.quick_address.insert(0, address)
@@ -152,21 +153,22 @@ class Gui:
                     self.dc.chat_send(etext)
                 self.msg_box.delete(0, END)
 
-    def users_loop(self):
+    def userlist_statusbar_loop(self):
         if self.dc and (self.dc.connecting or self.dc.connected):
-            try:
-                item = self.users_queue.get(block=False)
-            except queue.Empty:
-                pass
-            else:
-                action, index = item[0], item[1]
-                if action == 'add':
-                    nicks, role = item[2], item[3]
-                    self.userlist.add(index, nicks, role)
+            while True:
+                try:
+                    item = self.users.users_queue.get(block=False)
+                except queue.Empty:
+                    break
                 else:
-                    self.userlist.remove(index)
+                    action, index = item[0], item[1]
+                    if action == 'add':
+                        nicks, role = item[2], item[3]
+                        self.userlist.add(index, nicks, role)
+                    else:
+                        self.userlist.remove(index)
             self.statusbar.set('usercount', self.users.count())
-            self.root.after(500, self.users_loop)
+            self.userlist_statusbar_callback_id = self.root.after(1000, self.userlist_statusbar_loop)
         else:
             self.userlist.clear()
             self.statusbar.set('usercount', '')
@@ -216,16 +218,12 @@ class Gui:
                     if message['state'] == 'join':
                         # если включён показ прихода/ухода юзеров и получили только один ник, а не список,
                         # то будем выводить в чат нотификацию о пришедшем пользователе
-                        if config.settings['show_joins'] and isinstance(message['nick'], str):
-                            return_new = True
-                        else:
-                            return_new = False
-                        new = self.users.add(message['nick'], message['role'], return_new)
-                        if new:
-                            msg = ('info', "*** joins: " + new)
+                        is_new = self.users.add(message['nick'], message['role'])
+                        if config.settings['show_joins'] and is_new:
+                            msg = ('info', "*** joins: " + message['nick'])
                     else:
                         self.users.remove(message['nick'])
-                        if config.settings['show_joins'] and isinstance(message['nick'], str):
+                        if config.settings['show_joins']:
                             msg = ('info', "*** parts: " + message['nick'])
                 if msg:
                     timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
@@ -490,11 +488,11 @@ class PassWindow(Toplevel):
 class Users:
     ''' хранилище ников в виде списков (list) Users.user, Users.op, User.bot
     '''
-    def __init__(self, users_queue):
-        self.users_queue = users_queue
+    def __init__(self):
         self.user = []
         self.op = []
         self.bot = []
+        self.users_queue = queue.Queue()
         self.lock = threading.Lock()
 
     def _offset(self, role):   # вычисляет оффсет нужной части списка юзеров
@@ -505,7 +503,9 @@ class Users:
         else:
             return len(self.op) + len(self.bot)
 
-    def add(self, nicks, role, return_new=False):   # return_new=True - возвращать список новых (вошедших) пользователей
+    def add(self, nicks, role):
+        # при добавлении одного ника возвращает True, если это новый пользователь
+        # (т.е. если его ещё не было в списках)
         if isinstance(nicks, str):
             role_ = 'user' if role == 'unknown' else role
             to_list = getattr(self, role_)
@@ -515,37 +515,48 @@ class Users:
                     to_list.sort(key=str.lower)
                 index = self._offset(role_) + to_list.index(nicks)
                 self.users_queue.put(('add', index, nicks, role_))
-                ### TODO: удалить юзера из двух других списков, если он был добавлен в третий
+                removed = self.remove_from_other(nicks, role_)
+                return not removed   # если removed - True, значит, юзер уже был в списках
+            else:
+                return False
         else:   # если передали список
             new_list = sorted(nicks, key=str.lower)
             with self.lock:
                 setattr(self, role, new_list.copy())
-            self.users_queue.put(('add', self._offset(role), new_list, role))   ###
-            #$new = nicks   # возвращаем обратно ссылку на переданный список ;)
+            self.users_queue.put(('add', self._offset(role), new_list, role))
+            for nick in new_list:
+                self.remove_from_other(nick, role)
 
-            if role == 'bot':
-                check_another = ('op', 'user')
-            elif role == 'op':
-                check_another = ('user',)
-            else:
-                check_another = ()
-
-            for another in check_another:
-                for nick in new_list:
-                    self.remove_from(nick, another)
-
-    def remove_from(self, nick, from_):   # from='user|op|bot'
+    def remove_from(self, nick, from_):
+        # удаляет ник из указанного списка (from_='user|op|bot')
+        # возвращает True, если ник был удалён
         from_list = getattr(self, from_)
         try:
             index = from_list.index(nick) + self._offset(from_)
         except ValueError:
-            pass
-        else:
-            self.users_queue.put(('remove', index))   ###
-            with self.lock:
-                from_list.remove(nick)
+            return False
+        self.users_queue.put(('remove', index))
+        with self.lock:
+            from_list.remove(nick)
+        return True
 
-    def remove(self, nick):   # удалить из всех списков
+    def remove_from_other(self, nick, role):
+        # удаляет ник из двух других списков, учитывая приоритеты
+        # BotList > OpList > NickList
+        # возвращает True, если удалили хотя бы из одного списка
+        removed = False
+        if role == 'bot':
+            check_another = ('op', 'user')
+        elif role == 'op':
+            check_another = ('user',)
+        else:
+            return False
+        for another in check_another:
+            removed = self.remove_from(nick, another) or removed
+        return removed
+
+    def remove(self, nick):
+        # удалить из всех списков
         for from_ in ('user', 'op', 'bot'):
             self.remove_from(nick, from_)
 
