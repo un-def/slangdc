@@ -214,9 +214,20 @@ class DCClient:
         self.hubname = None
         self.hubtopic = None
 
-    def connect(self, userlist=False, msgnick=False, pass_callback=None):
+    def connect(self, supports=None, userlist=False, msgnick=False, pass_callback=None):
         """ подключиться к хабу
             возвращает True или False
+
+            supports=<str>|False|None
+                "поддерживаемые" клиентом характеристики (команда $Supports):
+                None (по умолчанию)
+                    использовать дефолтное значение ('HubTopic')
+                непустая строка
+                    разделённые пробелами характеристики
+                    (e.g. 'UserCommand NoGetINFO NoHello UserIP2 TTHSearch')
+                    саму команду $Supports в начале строки указывать не надо
+                False или пустая строка
+                    не отправлять команду $Supports
 
             userlist=False|True
                 хранить список пользователей в self.userlist (инстанс UserList)
@@ -251,12 +262,12 @@ class DCClient:
                 self.message_queue.mput(type=MSGERR, text="$Lock is not received")
                 return False
             lock = lock_received.group(1)
-            if lock.startswith(b'EXTENDEDPROTOCOL'):   # EXTENDEDPROTOCOL - поддерживаются расширения протокола
-                supports = '$Supports HubTopic'
+            if lock.startswith(b'EXTENDEDPROTOCOL') and self.supports:   # EXTENDEDPROTOCOL - поддерживаются расширения протокола
+                supports_cmd = '$Supports ' + self.supports
             else:
-                supports = ''
+                supports_cmd = ''
             key = lock2key(lock)
-            self.send(supports, b'$Key ' + key, '$ValidateNick ' + self.nick)
+            self.send(supports_cmd, b'$Key ' + key, '$ValidateNick ' + self.nick)
             attempts = 10
             while attempts:
                 data = self.receive(timeout=self._connect_timeout, err_message=False)
@@ -318,6 +329,7 @@ class DCClient:
         '''
         self.msgnick = msgnick
         self.userlist = None
+        self.supports = 'HubTopic' if supports is None else supports.strip()
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.message_queue.mput(type=MSGINFO, text="connecting to {0}".format(self.address))
         try:
