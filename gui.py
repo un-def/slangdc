@@ -50,7 +50,7 @@ class Gui:
         # statusbar
         self.statusbar = StatusBar(main_frame, side=BOTTOM)
         # message entry, send button
-        msg_frame = Frame(main_frame, pady=5)
+        msg_frame = Frame(main_frame)
         msg_frame.pack(side=BOTTOM, fill=X)
         msg_box = Entry(msg_frame)
         msg_box.pack(side=LEFT, expand=YES, fill=X)
@@ -238,12 +238,13 @@ class Chat(Frame):
         font_size = 12
         font_normal = (font_family, font_size, 'normal')
         font_bold = (font_family, font_size, 'bold')
-        tool_frame = Frame(self)
-        tool_frame.pack(side=BOTTOM, fill=X)
-        Button(tool_frame, text='Clear chat', command=self.clear).pack(side=LEFT)
+        tools_frame = Frame(self, height=30)
+        tools_frame.pack_propagate(0)
+        tools_frame.pack(side=BOTTOM, expand=NO, fill=BOTH)
+        Button(tools_frame, text='Clear chat', command=self.clear).place(x=0, rely=0.5, anchor=W)
         self.autoscroll = BooleanVar()
         self.autoscroll.set(True)
-        Checkbutton(tool_frame, text='Autoscroll', variable=self.autoscroll).pack(side=LEFT)
+        Checkbutton(tools_frame, text='Autoscroll', variable=self.autoscroll).place(x=100, rely=0.5, anchor=W)
         chat = Text(self, wrap=WORD, state=DISABLED)
         scroll = Scrollbar(self)
         scroll.config(command=chat.yview)
@@ -371,14 +372,22 @@ class UserList(Frame):
     def __init__(self, parent, side, expand, fill, doubleclick_callback=None):
         Frame.__init__(self, parent)
         self.pack(side=side, expand=expand, fill=fill)
-        userlist = Listbox(self, selectmode=SINGLE, activestyle=DOTBOX, width=25)
-        scroll = Scrollbar(self)
-        scroll.config(command=userlist.yview)
-        scroll.pack(side=RIGHT, fill=Y)
+        ul_frame = Frame(self)
+        ul_frame.pack(side=TOP, expand=YES, fill=BOTH)
+        userlist = Listbox(ul_frame, selectmode=SINGLE, activestyle=DOTBOX, width=25)
+        scroll = Scrollbar(ul_frame)
         userlist.config(yscrollcommand=scroll.set)
+        scroll.config(command=userlist.yview)
         userlist.pack(side=LEFT, expand=YES, fill=BOTH)
+        scroll.pack(side=LEFT, fill=Y)
         userlist.bind('<Double-1>', self.doubleclick)
         self.userlist = userlist
+        filter_frame = Frame(self, height=30)
+        filter_frame.pack_propagate(0)
+        filter_frame.pack(side=BOTTOM, expand=NO, fill=BOTH)
+        self.filter_var = StringVar()
+        filter_entry = Entry(filter_frame, textvariable=self.filter_var)
+        filter_entry.place(relx=0.5, rely=0.5, relwidth=0.99, anchor=CENTER)
         self.colors = {
             'user': 'black',
             'op': 'red',
@@ -408,8 +417,13 @@ class UserList(Frame):
             будут использоваться в вызывающем коде -
             метод хранит ссылки на них до следующегов вызова
         '''
+        filter_ = self.filter_var.get().strip().lower()
         for ind, role in enumerate(('op', 'bot', 'user')):
-            self._update_role(nicksets[ind], role)
+            if filter_:
+                nickset = {nick for nick in nicksets[ind] if filter_ in nick.lower()}
+            else:
+                nickset = nicksets[ind]
+            self._update_role(nickset, role)
 
     def _update_role(self, nickset, role):
         prev = getattr(self, 'prev_'+role)
@@ -418,7 +432,7 @@ class UserList(Frame):
             joined = nickset - prev
             if parted:
                 prev_sorted = sorted(prev, key=str.lower)
-                for nick in parted:
+                for nick in sorted(parted, key=str.lower, reverse=True):
                     index = prev_sorted.index(nick) + self._offset(role)
                     self.remove(index)
             if joined:
