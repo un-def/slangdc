@@ -60,7 +60,7 @@ class Gui:
         # chat, userlist
         chat_users_frame = Frame(main_frame)
         chat_users_frame.pack(side=TOP, expand=YES, fill=BOTH)
-        self.userlist = UserList(chat_users_frame, side=RIGHT, expand=NO, fill=Y)
+        self.userlist = UserList(chat_users_frame, side=RIGHT, expand=NO, fill=Y, doubleclick_callback=self.insert_nick)
         self.chat = Chat(chat_users_frame, side=LEFT, expand=YES, fill=BOTH, doubleclick_callback=self.insert_nick)
         self.root.after(1000, self.userlist_loop)
 
@@ -154,8 +154,11 @@ class Gui:
     def userlist_loop(self):
         if self.dc and (self.dc.connecting or self.dc.connected):
             if self.dc.userlist:
-                users = (self.dc.userlist - self.dc.userlist.ops - self.dc.userlist.bots)  ###
-                self.userlist.update(users)
+                ### копировать надо бы с локом
+                ops = self.dc.userlist.ops.copy()
+                bots = self.dc.userlist.bots.copy()
+                users = (self.dc.userlist - ops - bots)
+                self.userlist.update(ops, bots, users)
                 self.statusbar.set('usercount', len(self.dc.userlist))
             self.userlist_callback_id = self.root.after(1000, self.userlist_loop)
         else:
@@ -204,11 +207,8 @@ class Gui:
                     elif message['text'].startswith('HubTopic: '):
                         self.statusbar.set('hubtopic', self.dc.hubtopic)
                 elif message['type'] == slangdc.MSGNICK:
-                    if config.settings['show_joins']:
-                        if message['state'] == 'join':
-                            msg = ('info', "*** joins: " + message['nick'])
-                        else:
-                            msg = ('info', "*** parts: " + message['nick'])
+                    if config.settings['show_joins'] and isinstance(message['nick'], str):
+                        msg = ('info', "*** {0}s: {1}".format(message['state'], message['nick']))
                     else:
                         msg = None
                 if msg:
@@ -368,22 +368,24 @@ class StatusBar(Frame):
 
 class UserList(Frame):
 
-    def __init__(self, parent, side, expand, fill):
+    def __init__(self, parent, side, expand, fill, doubleclick_callback=None):
         Frame.__init__(self, parent)
         self.pack(side=side, expand=expand, fill=fill)
-        userlist = Listbox(self, selectmode=SINGLE, width=25)
+        userlist = Listbox(self, selectmode=SINGLE, activestyle=DOTBOX, width=25)
         scroll = Scrollbar(self)
         scroll.config(command=userlist.yview)
         scroll.pack(side=RIGHT, fill=Y)
         userlist.config(yscrollcommand=scroll.set)
         userlist.pack(side=LEFT, expand=YES, fill=BOTH)
+        userlist.bind('<Double-1>', self.doubleclick)
         self.userlist = userlist
-        self.previous = set()
         self.colors = {
             'user': 'black',
             'op': 'red',
             'bot': 'yellow'
         }
+        self.doubleclick_callback = doubleclick_callback
+        self.clear()
 
     def add(self, index, user, role):
         self.userlist.insert(index, user)
@@ -393,31 +395,56 @@ class UserList(Frame):
         self.userlist.delete(index)
 
     def clear(self):
-        self.previous = set()
+        # очистка и (пере)инициализация
+        self.prev_op = self.prev_bot = self.prev_user = None
+        self.op_len = self.bot_len = self.user_len = 0
         self.userlist.delete(0, END)
 
-    def update(self, userset):
-        ###print(self.userlist.index(END))
-        if self.previous:
-            parted = self.previous - userset
-            joined = userset - self.previous
+    def update(self, *nicksets):
+        ''' использование - update(ops, bots, users)
+            ops, bots, users - множества
+            users - множество _без_ опов и ботов
+            не следует передавать множества, которые потом
+            будут использоваться в вызывающем коде -
+            метод хранит ссылки на них до следующегов вызова
+        '''
+        for ind, role in enumerate(('op', 'bot', 'user')):
+            self._update_role(nicksets[ind], role)
+
+    def _update_role(self, nickset, role):
+        prev = getattr(self, 'prev_'+role)
+        if prev:
+            parted = prev - nickset
+            joined = nickset - prev
             if parted:
-                previous_sorted_list = sorted(self.previous, key=str.lower)
-                for user in parted:
-                    index = previous_sorted_list.index(user)
-                    ###print('parted', user, index)
+                prev_sorted = sorted(prev, key=str.lower)
+                for nick in parted:
+                    index = prev_sorted.index(nick) + self._offset(role)
                     self.remove(index)
             if joined:
-                sorted_list = sorted(userset, key=str.lower)
-                for user in sorted(joined, key=str.lower):
-                    index = sorted_list.index(user)
-                    ###print('joined', user, index)
-                    self.add(index, user, 'user')
+                nickset_sorted = sorted(nickset, key=str.lower)
+                for nick in sorted(joined, key=str.lower):
+                    index = nickset_sorted.index(nick) + self._offset(role)
+                    self.add(index, nick, role)
         else:
-            sorted_list = sorted(userset, key=str.lower)
-            self.userlist.insert(0, *sorted_list)
-        self.previous = userset   # сохраняем для следующего вызова
+            nickset_sorted = sorted(nickset, key=str.lower)
+            for index, nick in enumerate(nickset_sorted, self._offset(role)):
+                self.add(index, nick, role)
+        setattr(self, 'prev_'+role, nickset)   # сохраняем для следующего вызова
+        setattr(self, role+'_len', len(nickset))
 
+    def _offset(self, role):
+        if role == 'op':
+            return 0
+        elif role == 'bot':
+            return self.op_len
+        else:
+            return self.op_len + self.bot_len
+
+    def doubleclick(self, event=None):
+        if self.doubleclick_callback:
+            nick = self.userlist.get(ACTIVE)
+            self.doubleclick_callback(nick)
 
 class SettingsWindow(Toplevel):
 
