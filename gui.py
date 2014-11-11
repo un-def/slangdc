@@ -158,7 +158,7 @@ class Gui:
                 ops = self.dc.userlist.ops.copy()
                 bots = self.dc.userlist.bots.copy()
                 users = (self.dc.userlist - ops - bots)
-                self.userlist.update(ops, bots, users)
+                self.userlist.update_list(ops, bots, users)
                 self.statusbar.set('usercount', len(self.dc.userlist))
             self.userlist_callback_id = self.root.after(1000, self.userlist_loop)
         else:
@@ -409,7 +409,7 @@ class UserList(Frame):
         self.op_len = self.bot_len = self.user_len = 0
         self.userlist.delete(0, END)
 
-    def update(self, *nicksets):
+    def update_list(self, *nicksets):
         ''' использование - update(ops, bots, users)
             ops, bots, users - множества
             users - множество _без_ опов и ботов
@@ -426,22 +426,26 @@ class UserList(Frame):
             self._update_role(nickset, role)
 
     def _update_role(self, nickset, role):
+
+        def _sorted(set_, reverse=False):
+            return sorted(sorted(set_, reverse=reverse), key=str.lower, reverse=reverse)
+
         prev = getattr(self, 'prev_'+role)
         if prev:
             parted = prev - nickset
             joined = nickset - prev
             if parted:
-                prev_sorted = sorted(prev, key=str.lower)
-                for nick in sorted(parted, key=str.lower, reverse=True):
+                prev_sorted = _sorted(prev)
+                for nick in _sorted(parted, reverse=True):
                     index = prev_sorted.index(nick) + self._offset(role)
                     self.remove(index)
             if joined:
-                nickset_sorted = sorted(nickset, key=str.lower)
-                for nick in sorted(joined, key=str.lower):
+                nickset_sorted = _sorted(nickset)
+                for nick in _sorted(joined):
                     index = nickset_sorted.index(nick) + self._offset(role)
                     self.add(index, nick, role)
         else:
-            nickset_sorted = sorted(nickset, key=str.lower)
+            nickset_sorted = _sorted(nickset)
             for index, nick in enumerate(nickset_sorted, self._offset(role)):
                 self.add(index, nick, role)
         setattr(self, 'prev_'+role, nickset)   # сохраняем для следующего вызова
