@@ -410,7 +410,8 @@ class DCClient:
             self.recv_list = recv_data.split(b'|')
             if not self.recv_list[-1]:   # обычно команды заканчиваются на |
                 self.recv_list.pop()     # поэтому удаляем последний элемент
-        data = self.recv_list.pop(0)
+            self.recv_list.reverse()
+        data = self.recv_list.pop()
         if encoding is None: encoding = self.encoding   # кодировка по умолчанию
         if not encoding:   # если encoding=False
             return data
