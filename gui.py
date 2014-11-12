@@ -50,7 +50,7 @@ class Gui:
         # statusbar
         self.statusbar = StatusBar(main_frame, side=BOTTOM)
         # message box, send button
-        MessageBox(main_frame, side=BOTTOM, fill=X, submit_callback=self.send)
+        self.message_box = MessageBox(main_frame, side=BOTTOM, fill=X, submit_callback=self.send)
         # chat, userlist
         chat_users_frame = Frame(main_frame)
         chat_users_frame.pack(side=TOP, expand=YES, fill=BOTH)
@@ -69,10 +69,10 @@ class Gui:
 
     def insert_nick(self, check_nick):
         if self.dc and check_nick != self.dc.nick and self.dc.userlist and check_nick in self.dc.userlist:
-                if self.msg_box.index('insert') == 0:   # если курсор стоит в начале поля ввода,
+                if self.message_box.message_text.index(INSERT) == '1.0':   # если курсор стоит в начале поля ввода,
                     check_nick = check_nick + config.settings['chat_addr_sep'] + ' '   # то вставляем ник как обращение
-                self.msg_box.insert('insert', check_nick)
-                self.msg_box.focus_set()
+                self.message_box.message_text.insert(INSERT, check_nick)
+                self.message_box.message_text.focus_set()
                 return True
 
     def connect(self):
@@ -340,7 +340,7 @@ class MessageBox(Frame):
         Frame.__init__(self, parent)
         self.pack(side=side, expand=expand, fill=fill)
         Button(self, text="Send", command=lambda: self.submit(True, False)).pack(side=RIGHT, fill=Y)
-        message_text = Text(self, height=2)
+        message_text = Text(self, height=2, font = 'Helvetica')
         message_text.pack(side=LEFT, expand=YES, fill=X)
         # запускаем после небольшой задержки, чтобы наш биндинг отработал после системного (который вставляет \n)
         message_text.bind('<Return>', lambda e: parent.after(10, self.submit, False, False))
