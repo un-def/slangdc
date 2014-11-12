@@ -352,15 +352,15 @@ class MessageBox(Frame):
     def submit(self, send_button, lf2cr):
         # send_button=True - отправлено кликом по Send, а не клавишей Enter
         # lf2cr=True - преобразовать \n в \r
-        trim = '-1c' if send_button else '-2c'
-        message = self.message_text.get('1.0', END+trim)
-        if lf2cr: message = message.replace('\n', '\r')
-        if message and self.submit_callback:
-            sended = self.submit_callback(message)
-            if sended:
-                self.message_text.delete('1.0', END)
         if not send_button:   # если вызвали Enter'ом, удалим хвостовой \n
             self.message_text.delete('end-1c')
+        message = self.message_text.get('1.0', 'end-1c')
+        if message:
+            if lf2cr: message = message.replace('\n', '\r')
+            if self.submit_callback:
+                sended = self.submit_callback(message)
+                if sended:
+                    self.message_text.delete('1.0', END)
 
 
 class StatusBar(Frame):
