@@ -147,8 +147,8 @@ class Gui:
         if self.dc and (self.dc.connecting or self.dc.connected):
             if self.dc.userlist:
                 ### копировать надо бы с локом
-                ops = self.dc.userlist.ops.copy()
                 bots = self.dc.userlist.bots.copy()
+                ops = self.dc.userlist.ops - bots
                 users = (self.dc.userlist - ops - bots)
                 self.userlist.update_list(ops, bots, users)
                 self.statusbar.set('usercount', len(self.dc.userlist))
@@ -249,7 +249,7 @@ class Chat(Frame):
             ('own_nick', font_bold, 'green'),
             ('user_nick', font_bold, 'black'),
             ('op_nick', font_bold, 'red'),
-            ('bot_nick', font_bold, 'red'),
+            ('bot_nick', font_bold, 'magenta'),
             ('error', font_normal, 'red'),
             ('info', font_normal, 'blue')
         )
@@ -395,7 +395,8 @@ class UserList(Frame):
         self.pack(side=side, expand=expand, fill=fill)
         ul_frame = Frame(self)
         ul_frame.pack(side=TOP, expand=YES, fill=BOTH)
-        userlist = Listbox(ul_frame, selectmode=SINGLE, activestyle=DOTBOX, width=25)
+        font = ('Helvetica', 10, 'normal')
+        userlist = Listbox(ul_frame, selectmode=SINGLE, activestyle=DOTBOX, width=25, font=font)
         scroll = Scrollbar(ul_frame)
         userlist.config(yscrollcommand=scroll.set)
         scroll.config(command=userlist.yview)
@@ -412,7 +413,7 @@ class UserList(Frame):
         self.colors = {
             'user': 'black',
             'op': 'red',
-            'bot': 'yellow'
+            'bot': 'magenta'
         }
         self.doubleclick_callback = doubleclick_callback
         self.clear()
