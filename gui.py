@@ -39,7 +39,7 @@ class Gui:
         )
         for btn_txt, btn_cmd in menu_buttons:
             menu.add_command(label=btn_txt, command=btn_cmd)
-        # address entry, quick connect, disconnect, settings, quit buttons
+        # address entry, quick connect button
         quick_frame = Frame(main_frame, pady=3)
         quick_frame.pack(side=TOP, fill=X)
         quick_address = Entry(quick_frame)
@@ -49,14 +49,8 @@ class Gui:
         Button(quick_frame, text="Quick connect", command=self.quick_connect).pack(side=LEFT)
         # statusbar
         self.statusbar = StatusBar(main_frame, side=BOTTOM)
-        # message entry, send button
-        msg_frame = Frame(main_frame)
-        msg_frame.pack(side=BOTTOM, fill=X)
-        msg_box = Entry(msg_frame)
-        msg_box.pack(side=LEFT, expand=YES, fill=X)
-        msg_box.bind('<Return>', self.send)
-        self.msg_box = msg_box
-        Button(msg_frame, text="Send", command=self.send).pack(side=RIGHT)
+        # message box, send button
+        MessageBox(main_frame, side=BOTTOM, fill=X, submit_callback=self.send)
         # chat, userlist
         chat_users_frame = Frame(main_frame)
         chat_users_frame.pack(side=TOP, expand=YES, fill=BOTH)
@@ -138,18 +132,16 @@ class Gui:
         except Exception:   # workaround - AttribureError, _tkinter.TclError
             self.settings_window = SettingsWindow(self.root)
 
-    def send(self, event=None):
+    def send(self, message):
         if self.dc and self.dc.connected:
-            etext = self.msg_box.get()
-            if etext:
-                if etext.startswith('/pm '):
-                    nick, text = etext[4:].split(' ', 1)
-                    self.dc.pm_send(nick, text)
-                elif etext == '/quit':
-                    self.quit()
-                elif not etext.startswith('/') or etext.startswith('/me '):
-                    self.dc.chat_send(etext)
-                self.msg_box.delete(0, END)
+            if message.startswith('/pm '):
+                nick, text = message[4:].split(' ', 1)
+                self.dc.pm_send(nick, text)
+            else:
+                self.dc.chat_send(message)
+            return True
+        else:
+            return False
 
     def userlist_loop(self):
         if self.dc and (self.dc.connecting or self.dc.connected):
@@ -342,6 +334,35 @@ class Chat(Frame):
             self.empty = True
 
 
+class MessageBox(Frame):
+
+    def __init__(self, parent, side, expand=NO, fill=X, submit_callback=None):
+        Frame.__init__(self, parent)
+        self.pack(side=side, expand=expand, fill=fill)
+        Button(self, text="Send", command=lambda: self.submit(True, False)).pack(side=RIGHT, fill=Y)
+        message_text = Text(self, height=2)
+        message_text.pack(side=LEFT, expand=YES, fill=X)
+        # запускаем после небольшой задержки, чтобы наш биндинг отработал после системного (который вставляет \n)
+        message_text.bind('<Return>', lambda e: parent.after(10, self.submit, False, False))
+        message_text.bind('<Shift-Return>', lambda e: parent.after(10, self.submit, False, True))   # '\n' --> '\r'
+        message_text.bind('<Control-Return>', lambda e: None)   # \n всё равно вставится, системный биндинг отработает, а наш биндинг - нет
+        self.message_text = message_text
+        self.submit_callback = submit_callback
+
+    def submit(self, send_button, lf2cr):
+        # send_button=True - отправлено кликом по Send, а не клавишей Enter
+        # lf2cr=True - преобразовать \n в \r
+        trim = '-1c' if send_button else '-2c'
+        message = self.message_text.get('1.0', END+trim)
+        if lf2cr: message = message.replace('\n', '\r')
+        if message and self.submit_callback:
+            sended = self.submit_callback(message)
+            if sended:
+                self.message_text.delete('1.0', END)
+        if not send_button:   # если вызвали Enter'ом, удалим хвостовой \n
+            self.message_text.delete('end-1c')
+
+
 class StatusBar(Frame):
 
     def __init__(self, parent, side, expand=NO, fill=X):
@@ -463,6 +484,7 @@ class UserList(Frame):
         if self.doubleclick_callback:
             nick = self.userlist.get(ACTIVE)
             self.doubleclick_callback(nick)
+
 
 class SettingsWindow(Toplevel):
 
