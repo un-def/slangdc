@@ -4,6 +4,7 @@ import re
 import threading
 from datetime import datetime
 from tkinter import *
+from tkinter.messagebox import askyesno
 import slangdc
 import conf
 
@@ -17,7 +18,7 @@ class Gui:
         self.userlist_callback_id = None
         root = Tk()
         root.title("slangdc.Tk")
-        root.protocol('WM_DELETE_WINDOW', self.quit)
+        root.protocol('WM_DELETE_WINDOW', root.iconify)
         self.root = root
         main_frame = Frame(root, padx=5, pady=5)
         main_frame.pack(expand=YES, fill=BOTH)
@@ -123,8 +124,9 @@ class Gui:
         self.connect()
 
     def quit(self):
-        self.disconnect()
-        self.root.quit()
+        if askyesno("Quit confirmation", "Really quit?"):
+            self.disconnect()
+            self.root.quit()
 
     def show_settings(self):
         try:
