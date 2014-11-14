@@ -152,8 +152,14 @@ class Gui:
                 bots = self.dc.userlist.bots.copy()
                 ops = self.dc.userlist.ops - bots
                 users = (self.dc.userlist - ops - bots)
+                count_all = sum(map(len, (bots, ops, users)))   # не len(self.dc.userlist), т.к. он может измениться в процессе
                 self.userlist.update_list(ops, bots, users)
-                self.statusbar.set('usercount', len(self.dc.userlist))
+                count_filter = self.userlist.len()
+                if count_filter != count_all:
+                    count = "{0:d}/{1:d}".format(count_filter, count_all)
+                else:
+                    count = str(count_all)
+                self.statusbar.set('usercount', count)
             self.userlist_callback_id = self.root.after(1000, self.userlist_loop)
         else:
             self.userlist.clear()
@@ -419,6 +425,9 @@ class UserList(Frame):
         }
         self.doubleclick_callback = doubleclick_callback
         self.clear()
+
+    def len(self):
+        return sum((self.op_len, self.bot_len, self.user_len))
 
     def add(self, index, user, role):
         self.userlist.insert(index, user)
