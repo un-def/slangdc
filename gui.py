@@ -239,7 +239,7 @@ class Chat(Frame):
         self.autoscroll = BooleanVar()
         self.autoscroll.set(True)
         Checkbutton(tools_frame, text='Autoscroll', variable=self.autoscroll).place(x=100, rely=0.5, anchor=W)
-        chat = Text(self, wrap=WORD, state=DISABLED)
+        chat = Text(self, wrap=WORD)
         scroll = Scrollbar(self)
         scroll.config(command=chat.yview)
         scroll.pack(side=RIGHT, fill=Y)
@@ -259,10 +259,12 @@ class Chat(Frame):
             chat.tag_config(tag, font=font, foreground=color)
         # http://stackoverflow.com/questions/9957810/how-do-you-modify-the-current-selection-length-in-a-tkinter-text-widget
         chat.bind('<Double-1>', lambda e: self.after(20, self.doubleclick))
+        chat.bind('<Control-c>', self.text_copy)
+        chat.bind('<Key>', lambda e: 'break')
         self.chat = chat
         self.empty = True
         self.doubleclick_callback = doubleclick_callback
-        self.lock = threading.RLock()
+        self.lock = threading.Lock()
 
     def doubleclick(self, event=None):
         ''' пытается извлечь из выделенного по двойному клику текста и его
@@ -311,7 +313,6 @@ class Chat(Frame):
             (tag1, text1, tag2, text2, ...)
         '''
         with self.lock:
-            self.chat.config(state=NORMAL)
             if self.empty:
                 self.empty = False
             else:
@@ -324,16 +325,19 @@ class Chat(Frame):
             if chat_lines > self.max_lines:
                 del_to = str(chat_lines-self.max_lines+1) + '.0'
                 self.chat.delete('1.0', del_to)
-            self.chat.config(state=DISABLED)
             if self.autoscroll.get():
                 self.chat.see(END)
 
     def clear(self):
         with self.lock:
-            self.chat.config(state=NORMAL)
             self.chat.delete('1.0', END)
-            self.chat.config(state=DISABLED)
             self.empty = True
+
+    def text_copy(self, event):
+        if self.chat.tag_ranges(SEL):
+            self.clipboard_clear()
+            self.clipboard_append(self.chat.get('sel.first', 'sel.last'))
+        return 'break'
 
 
 class MessageBox(Frame):
@@ -341,21 +345,17 @@ class MessageBox(Frame):
     def __init__(self, parent, side, expand=NO, fill=X, submit_callback=None):
         Frame.__init__(self, parent)
         self.pack(side=side, expand=expand, fill=fill)
-        Button(self, text="Send", command=lambda: self.submit(True, False)).pack(side=RIGHT, fill=Y)
+        Button(self, text="Send", command=self.submit).pack(side=RIGHT, fill=Y)
         message_text = Text(self, height=2, font = 'Helvetica')
         message_text.pack(side=LEFT, expand=YES, fill=X)
         # запускаем после небольшой задержки, чтобы наш биндинг отработал после системного (который вставляет \n)
-        message_text.bind('<Return>', lambda e: parent.after(10, self.submit, False, False))
-        message_text.bind('<Shift-Return>', lambda e: parent.after(10, self.submit, False, True))   # '\n' --> '\r'
-        message_text.bind('<Control-Return>', lambda e: None)   # \n всё равно вставится, системный биндинг отработает, а наш биндинг - нет
+        message_text.bind('<Return>', lambda e: self.submit())
+        message_text.bind('<Shift-Return>', lambda e: self.submit(lf2cr=True))   # '\n' --> '\r'
+        message_text.bind('<Control-Return>', lambda e: None)   # оверрайдим наш биндинг на Enter, передаём управление дальше системному (который вставит \n)
         self.message_text = message_text
         self.submit_callback = submit_callback
 
-    def submit(self, send_button, lf2cr):
-        # send_button=True - отправлено кликом по Send, а не клавишей Enter
-        # lf2cr=True - преобразовать \n в \r
-        if not send_button:   # если вызвали Enter'ом, удалим хвостовой \n
-            self.message_text.delete('end-1c')
+    def submit(self, lf2cr=False):   # lf2cr=True - преобразовать \n в \r
         message = self.message_text.get('1.0', 'end-1c')
         if message:
             if lf2cr: message = message.replace('\n', '\r')
@@ -363,6 +363,7 @@ class MessageBox(Frame):
                 sended = self.submit_callback(message)
                 if sended:
                     self.message_text.delete('1.0', END)
+        return 'break'   # отменяем системный биндинг
 
 
 class StatusBar(Frame):
