@@ -14,8 +14,9 @@ class Gui:
     def __init__(self):
         self.dc = None
         self.dc_settings = None
-        self.reconnect_callback_id = None
-        self.userlist_callback_id = None
+        self.chat_loop_running = False
+        self.userlist_loop_running = False
+        self.do_connect = False
         root = Tk()
         root.title("slangdc.Tk")
         root.protocol('WM_DELETE_WINDOW', root.iconify)
@@ -57,16 +58,26 @@ class Gui:
         chat_users_frame.pack(side=TOP, expand=YES, fill=BOTH)
         self.userlist = UserList(chat_users_frame, side=RIGHT, expand=NO, fill=Y, doubleclick_callback=self.insert_nick)
         self.chat = Chat(chat_users_frame, side=LEFT, expand=YES, fill=BOTH, doubleclick_callback=self.insert_nick)
-        self.root.after(1000, self.userlist_loop)
 
     def mainloop(self):
         self.root.mainloop()
+
+    def quit(self):
+        if askyesno("Quit confirmation", "Really quit?"):
+            self.disconnect()
+            self.root.quit()
 
     def get_pass(self):
         pass_window = PassWindow(self.root)
         self.root.after(50)   # workaround - без этого иногда PassWindow блокируется
         pass_window.wait_window()
         return pass_window.password.get()
+
+    def show_settings(self):
+        try:
+            self.settings_window.focus_set()
+        except Exception:   # workaround - AttribureError, _tkinter.TclError
+            self.settings_window = SettingsWindow(self.root)
 
     def insert_nick(self, check_nick):
         if self.dc and check_nick != self.dc.nick and self.dc.userlist and check_nick in self.dc.userlist:
@@ -76,40 +87,28 @@ class Gui:
                 self.message_box.message_text.focus_set()
                 return True
 
+    def check_user_role(self, nick):
+        if self.dc and self.dc.userlist:
+            if nick in self.dc.userlist.bots:
+                return 'bot'
+            elif nick in self.dc.userlist.ops:
+                return 'op'
+            elif nick in self.dc.userlist:
+                return 'user'
+        return False
+
     def connect(self):
-        self.disconnect()
-        self._reconnect = True if config.settings['reconnect'] and config.settings['reconnect_delay'] > 0 else False
-        if self.dc_settings and (not self.dc or not self.dc.connecting):   # если ещё не подключались или не подключаемся в данный момент
-            self.dc = slangdc.DCClient(**self.dc_settings)
-            self.userlist.clear()
-            self.chat_loop(self.dc)
-            self.userlist_callback_id = self.root.after(100, self.userlist_loop)
-            DCThread(self.dc, pass_callback=self.get_pass, onclose_callback=self.reconnect).start()
+        if self.dc and (self.dc.connected or self.dc.connecting):
+            self.disconnect()
+            self.root.after(200, self.connect)
+        elif self.dc_settings:
+            self.do_connect = True
+            self.connect_loop()
 
     def disconnect(self):
-        self._reconnect = False
+        self.do_connect = False
         if self.dc and self.dc.connected:
             self.dc.disconnect()
-            self.dc = None
-            self.statusbar.set('hubname', '')
-            self.statusbar.set('hubtopic', '')
-            self.statusbar.set('usercount', '')
-            self.userlist.clear()
-        self.cancel_reconnect_callback()
-        if self.userlist_callback_id:
-            self.root.after_cancel(self.userlist_callback_id)
-
-    def reconnect(self):
-        if self._reconnect:
-            try:
-                self.reconnect_callback_id = self.root.after(config.settings['reconnect_delay']*1000, self.connect)
-            except RuntimeError:   # main thread is not in main loop при закрытии приложения
-                pass
-
-    def cancel_reconnect_callback(self):
-        if self.reconnect_callback_id:
-            self.root.after_cancel(self.reconnect_callback_id)
-            self.reconnect_callback_id = None
 
     def quick_connect(self, event=None):
         address = self.quick_address.get().strip().rstrip('/').split('//')[-1]
@@ -123,17 +122,6 @@ class Gui:
         self.dc_settings = config.make_dc_settings_from_bm(bm_number)
         self.connect()
 
-    def quit(self):
-        if askyesno("Quit confirmation", "Really quit?"):
-            self.disconnect()
-            self.root.quit()
-
-    def show_settings(self):
-        try:
-            self.settings_window.focus_set()
-        except Exception:   # workaround - AttribureError, _tkinter.TclError
-            self.settings_window = SettingsWindow(self.root)
-
     def send(self, message):
         if self.dc and self.dc.connected:
             if message.startswith('/pm '):
@@ -145,43 +133,40 @@ class Gui:
         else:
             return False
 
-    def userlist_loop(self):
-        if self.dc and (self.dc.connecting or self.dc.connected):
-            if self.dc.userlist:
-                ### копировать надо бы с локом
-                bots = self.dc.userlist.bots.copy()
-                ops = self.dc.userlist.ops - bots
-                users = (self.dc.userlist - ops - bots)
-                count_all = sum(map(len, (bots, ops, users)))   # не len(self.dc.userlist), т.к. он может измениться в процессе
-                self.userlist.update_list(ops, bots, users)
-                count_filter = self.userlist.len()
-                if count_filter != count_all:
-                    count = "{0:d}/{1:d}".format(count_filter, count_all)
-                else:
-                    count = str(count_all)
-                self.statusbar.set('usercount', count)
-            self.userlist_callback_id = self.root.after(1000, self.userlist_loop)
-        else:
+    def check_loop(self):
+        if not (self.dc.connecting or self.dc.connected):
             self.userlist.clear()
-            self.statusbar.set('usercount', '')
+            self.statusbar.clear()
+            if self.do_connect and config.settings['reconnect'] and config.settings['reconnect_delay'] > 0:
+                self.root.after(config.settings['reconnect_delay']*1000, self.connect_loop)
+        else:
+            self.root.after(100, self.check_loop)
 
-    def chat_loop(self, dc):
-        ''' небольшой трюк - ссылку на инстанс DCClient передаём не через
-            атрибуты (self.dc), а через аргумент функции; после дисконнекта
-            (self.dc = None) инстанс продолжит существовать, пока передаётся
-            ссылка на него (т.е. пока не заберём все сообщения из очереди и
-            не завершим chat_loop)
-        '''
-        message = dc.message_queue.mget()
+    def connect_loop(self):
+        if self.chat_loop_running or self.userlist_loop_running:
+            self.root.after(100, self.connect_loop)
+        else:
+            if self.do_connect:
+                self.dc = slangdc.DCClient(**self.dc_settings)
+                DCThread(self.dc, pass_callback=self.get_pass).start()
+                self.chat_loop_running = True
+                self.chat_userlist_running = True
+                self.root.after(100, self.chat_loop)
+                self.root.after(100, self.userlist_loop)
+                self.root.after(100, self.check_loop)
+
+    def chat_loop(self):
+        message = self.dc.message_queue.mget()
         if message:
             if message['type'] == slangdc.MSGEND:
+                self.chat_loop_running = False
                 return
             else:
                 if message['type'] == slangdc.MSGCHAT:
                     message['text'] = message['text'].replace('\r', '')
                     nick_tag = 'user_nick'
                     if self.dc:
-                        if message['nick'] == dc.nick:
+                        if message['nick'] == self.dc.nick:
                             nick_tag = 'own_nick'
                         else:
                             nick_role = self.check_user_role(message['nick'])
@@ -214,17 +199,26 @@ class Gui:
                 if msg:
                     timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
                     self.chat.add_message(('timestamp', timestamp) + msg)
-        self.root.after(10, self.chat_loop, dc)
+        self.root.after(10, self.chat_loop)
 
-    def check_user_role(self, nick):
-        if self.dc and self.dc.userlist:
-            if nick in self.dc.userlist.bots:
-                return 'bot'
-            elif nick in self.dc.userlist.ops:
-                return 'op'
-            elif nick in self.dc.userlist:
-                return 'user'
-        return False
+    def userlist_loop(self):
+        if self.dc.connecting or self.dc.connected:
+            if self.dc.userlist:
+                ### копировать надо бы с локом
+                bots = self.dc.userlist.bots.copy()
+                ops = self.dc.userlist.ops - bots
+                users = (self.dc.userlist - ops - bots)
+                count_all = sum(map(len, (bots, ops, users)))   # не len(self.dc.userlist), т.к. он может измениться в процессе
+                self.userlist.update_list(ops, bots, users)
+                count_filter = self.userlist.len()
+                if count_filter != count_all:
+                    count = "{0:d}/{1:d}".format(count_filter, count_all)
+                else:
+                    count = str(count_all)
+                self.statusbar.set('usercount', count)
+            self.root.after(1000, self.userlist_loop)
+        else:
+            self.userlist_loop_running = False
 
 
 class Chat(Frame):
@@ -400,6 +394,10 @@ class StatusBar(Frame):
 
     def set(self, var, value):
         self._vars[var][0].set(self._vars[var][1] + ": " + str(value))
+
+    def clear(self):
+        for var_name in self._vars:
+            self.set(var_name, '')
 
 
 class UserList(Frame):
@@ -588,18 +586,15 @@ class PassWindow(Toplevel):
 
 class DCThread(threading.Thread):
 
-    def __init__(self, dc, pass_callback=None, onclose_callback=None):
+    def __init__(self, dc, pass_callback=None):
         self.dc = dc
         self.pass_callback=pass_callback
-        self.onclose_callback=onclose_callback
         threading.Thread.__init__(self, name=self.__class__.__name__)
 
     def run(self):
         self.dc.connect(userlist=True, msgnick=True, pass_callback=self.pass_callback)
         while self.dc.connected:
             self.dc.receive(raise_exc=False)
-        if self.onclose_callback:
-            self.onclose_callback()
 
 
 config = conf.Config()
