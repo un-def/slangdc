@@ -266,7 +266,8 @@ class Chat(Frame):
         # http://stackoverflow.com/questions/9957810/how-do-you-modify-the-current-selection-length-in-a-tkinter-text-widget
         chat.bind('<Double-1>', lambda e: self.after(20, self.doubleclick))
         chat.bind('<Control-c>', self.text_copy)
-        chat.bind('<Key>', lambda e: 'break')
+        chat.bind('<Control-C>', self.text_copy)
+        chat.bind('<Key>', self.nav_keys)
         self.chat = chat
         self.empty = True
         self.doubleclick_callback = doubleclick_callback
@@ -344,6 +345,10 @@ class Chat(Frame):
             self.clipboard_clear()
             self.clipboard_append(self.chat.get('sel.first', 'sel.last'))
         return 'break'
+
+    def nav_keys(self, event):
+        if not event.keysym in ('Home', 'End', 'Prior', 'Next', 'Up', 'Down', 'Left', 'Right'):
+            return 'break'
 
 
 class MessageBox(Frame):
