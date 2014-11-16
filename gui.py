@@ -52,7 +52,7 @@ class Gui:
         chat_users_frame = Frame(main_frame)
         chat_users_frame.pack(side=TOP, expand=YES, fill=BOTH)
         self.userlist = UserList(chat_users_frame, side=RIGHT, expand=NO, fill=Y, doubleclick_callback=self.insert_nick)
-        self.chat = Chat(chat_users_frame, side=LEFT, expand=YES, fill=BOTH, doubleclick_callback=self.insert_nick)
+        self.chat = Chat(chat_users_frame, side=LEFT, expand=YES, fill=BOTH, nick_callback=self.insert_nick)
 
     def mainloop(self):
         self.root.mainloop()
@@ -249,7 +249,7 @@ class Chat(Frame):
 
     max_lines = 500
 
-    def __init__(self, parent, side, expand, fill, doubleclick_callback=None):
+    def __init__(self, parent, side, expand, fill, nick_callback):
         Frame.__init__(self, parent)
         self.pack(side=side, expand=expand, fill=fill)
         font_family = 'Helvetica'
@@ -270,12 +270,12 @@ class Chat(Frame):
         chat.config(yscrollcommand=scroll.set)
         chat.pack(side=LEFT, expand=YES, fill=BOTH)
         tags = (
-            ('timestamp', font_normal, 'gray', ('<Button-1>', self.timestamp_bind)),
-            ('text', font_normal, 'black', None),
+            ('timestamp', font_normal, 'gray', ('<Button-1>', self.print_tag)),
+            ('text', font_normal, 'black', ('<Button-1>', self.print_tag)),
             ('own_nick', font_bold, 'green', None),
-            ('user_nick', font_bold, 'black', None),
-            ('op_nick', font_bold, 'red', None),
-            ('bot_nick', font_bold, 'magenta', None),
+            ('user_nick', font_bold, 'black', ('<Button-3>', self.nick_click)),
+            ('op_nick', font_bold, 'red', ('<Button-3>', self.nick_click)),
+            ('bot_nick', font_bold, 'magenta', ('<Button-3>', self.nick_click)),
             ('error', font_normal, 'red', None),
             ('info', font_normal, 'blue', None)
         )
@@ -290,20 +290,26 @@ class Chat(Frame):
         chat.bind('<Key>', self.nav_keys)
         self.chat = chat
         self.empty = True
-        self.doubleclick_callback = doubleclick_callback
+        self.nick_callback = nick_callback
         self.lock = threading.Lock()
 
-    def _get_tag_text(self, tag, event):
+    def _get_tag_range(self, tag, event):
         index = self.chat.index('@{},{}'.format(event.x, event.y))
         tag_range = self.chat.tag_prevrange(tag, index)
-        if tag_range[0].split('.')[0] != index.split('.')[0]:
+        if not tag_range or self.chat.compare(tag_range[1], '<', index):
             tag_range = self.chat.tag_nextrange(tag, index)
-        return self.chat.get(*tag_range)
+        return (index, tag_range)
 
-    def timestamp_bind(self, tag, event):
-        timestamp = self._get_tag_text(tag, event)
-        print(tag, timestamp)
+    def print_tag(self, tag, event):
+        index, tag_range = self._get_tag_range(tag, event)
+        tag_text = self.chat.get(*tag_range)
+        print("{0} @ {1}: [{2[0]}, {2[1]}] {3}".format(tag, index, tag_range, tag_text))
         return 'break'
+
+    def nick_click(self, tag, event):
+        index, tag_range = self._get_tag_range(tag, event)
+        nick = self.chat.get(*tag_range)
+        self.nick_callback(nick)
 
     def doubleclick(self, event=None):
         ''' пытается извлечь из выделенного по двойному клику текста и его
@@ -342,10 +348,9 @@ class Chat(Frame):
                 sel_strip = re.search('[^\<\>\:,]+', sel)
                 if sel_strip:
                     sel = sel_strip.group(0)
-            if self.doubleclick_callback:
-                is_nick = self.doubleclick_callback(sel)
-                if is_nick:
-                    self.chat.tag_add('sel', '{}.{}'.format(line, col_begin), '{}.{}'.format(line, col_end))
+            is_nick = self.nick_callback(sel)
+            if is_nick:
+                self.chat.tag_add('sel', '{}.{}'.format(line, col_begin), '{}.{}'.format(line, col_end))
 
     def add_message(self, msg_list):
         ''' msg_list - одно сообщение в виде списка/кортежа
