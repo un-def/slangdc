@@ -270,17 +270,19 @@ class Chat(Frame):
         chat.config(yscrollcommand=scroll.set)
         chat.pack(side=LEFT, expand=YES, fill=BOTH)
         tags = (
-            ('timestamp', font_normal, 'gray'),
-            ('text', font_normal, 'black'),
-            ('own_nick', font_bold, 'green'),
-            ('user_nick', font_bold, 'black'),
-            ('op_nick', font_bold, 'red'),
-            ('bot_nick', font_bold, 'magenta'),
-            ('error', font_normal, 'red'),
-            ('info', font_normal, 'blue')
+            ('timestamp', font_normal, 'gray', ('<Button-1>', self.timestamp_bind)),
+            ('text', font_normal, 'black', None),
+            ('own_nick', font_bold, 'green', None),
+            ('user_nick', font_bold, 'black', None),
+            ('op_nick', font_bold, 'red', None),
+            ('bot_nick', font_bold, 'magenta', None),
+            ('error', font_normal, 'red', None),
+            ('info', font_normal, 'blue', None)
         )
-        for tag, font, color in tags:
+        for tag, font, color, bind in tags:
             chat.tag_config(tag, font=font, foreground=color)
+            if bind:
+                chat.tag_bind(tag, bind[0], lambda e, c=bind[1], t=tag: c(t, e))
         # http://stackoverflow.com/questions/9957810/how-do-you-modify-the-current-selection-length-in-a-tkinter-text-widget
         chat.bind('<Double-1>', lambda e: self.after(20, self.doubleclick))
         chat.bind('<Control-c>', self.text_copy)
@@ -290,6 +292,18 @@ class Chat(Frame):
         self.empty = True
         self.doubleclick_callback = doubleclick_callback
         self.lock = threading.Lock()
+
+    def _get_tag_text(self, tag, event):
+        index = self.chat.index('@{},{}'.format(event.x, event.y))
+        tag_range = self.chat.tag_prevrange(tag, index)
+        if tag_range[0].split('.')[0] != index.split('.')[0]:
+            tag_range = self.chat.tag_nextrange(tag, index)
+        return self.chat.get(*tag_range)
+
+    def timestamp_bind(self, tag, event):
+        timestamp = self._get_tag_text(tag, event)
+        print(tag, timestamp)
+        return 'break'
 
     def doubleclick(self, event=None):
         ''' пытается извлечь из выделенного по двойному клику текста и его
