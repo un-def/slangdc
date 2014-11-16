@@ -17,6 +17,7 @@ class Gui:
         self.chat_loop_running = False
         self.userlist_loop_running = False
         self.do_connect = False
+        self.pass_event = PassEvent()   # эвент для коммуникации между тредами (получения пароля)
         root = Tk()
         root.title("slangdc.Tk")
         root.protocol('WM_DELETE_WINDOW', root.iconify)
@@ -67,12 +68,6 @@ class Gui:
             self.disconnect()
             self.root.quit()
 
-    def get_pass(self):
-        pass_window = PassWindow(self.root)
-        self.root.after(50)   # workaround - без этого иногда PassWindow блокируется
-        pass_window.wait_window()
-        return pass_window.password.get()
-
     def show_settings(self):
         try:
             self.settings_window.focus_set()
@@ -107,6 +102,7 @@ class Gui:
 
     def disconnect(self):
         self.do_connect = False
+        self.pass_event.password = None   # сбросим пароль, введённый вручную
         if self.dc and self.dc.connected:
             self.dc.disconnect()
 
@@ -140,6 +136,11 @@ class Gui:
             if self.do_connect and config.settings['reconnect'] and config.settings['reconnect_delay'] > 0:
                 self.root.after(config.settings['reconnect_delay']*1000, self.connect_loop)
         else:
+            if not self.pass_event.is_set():   # если сброшен, значит, DC-тред ждёт пароль
+                pass_window = PassWindow(self.root)
+                pass_window.wait_window()
+                self.pass_event.password = pass_window.password.get()   # передамим в DC-тред через атрибут эвента
+                self.pass_event.set()   # устанавливаем обратно в True (информируем DC-тред, что пароль получен)
             self.root.after(100, self.check_loop)
 
     def connect_loop(self):
@@ -148,7 +149,7 @@ class Gui:
         else:
             if self.do_connect:
                 self.dc = slangdc.DCClient(**self.dc_settings)
-                DCThread(self.dc, pass_callback=self.get_pass).start()
+                DCThread(self.dc, self.pass_event).start()
                 self.chat_loop_running = True
                 self.chat_userlist_running = True
                 self.root.after(100, self.chat_loop)
@@ -584,17 +585,39 @@ class PassWindow(Toplevel):
             self.destroy()
 
 
+class PassEvent(threading.Event):
+    ''' по умолчанию True, сбрасывается, когда DC-тред ждёт пароль,
+        устанавливается обратно, когда основной тред получил пароль
+        хранит пароль в атрибуте password
+    '''
+    def __init__(self):
+        super().__init__()
+        self.set()
+        self.password = None
+
+
 class DCThread(threading.Thread):
 
-    def __init__(self, dc, pass_callback=None):
+    def __init__(self, dc, pass_event):
         self.dc = dc
-        self.pass_callback=pass_callback
+        self.pass_event = pass_event
         threading.Thread.__init__(self, name=self.__class__.__name__)
 
     def run(self):
         self.dc.connect(userlist=True, msgnick=True, pass_callback=self.pass_callback)
         while self.dc.connected:
             self.dc.receive(raise_exc=False)
+
+    def pass_callback(self):
+        ''' однажды введённый пароль храним в атрибуте эвента, пока не будет
+            нажата кнопка Disconnect или инициировано новое подключение через
+            закладки или Quick connect (тоже вызывают disconnect(), который
+            сбрасывает pass_event.password в None)
+        '''
+        if not self.pass_event.password:
+            self.pass_event.clear()   # сбрасываем эвент (False) (по умолчанию было True)
+            self.pass_event.wait()   # ждём, пока в главном потоке выставят обратно в True (когда будет получен пароль)
+        return self.pass_event.password
 
 
 config = conf.Config()
