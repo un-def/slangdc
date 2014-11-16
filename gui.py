@@ -16,6 +16,7 @@ class Gui:
         self.dc_settings = None
         self.chat_loop_running = False
         self.userlist_loop_running = False
+        self.connect_loop_running = False
         self.do_connect = False
         self.pass_event = PassEvent()   # эвент для коммуникации между тредами (получения пароля)
         root = Tk()
@@ -25,23 +26,16 @@ class Gui:
         main_frame = Frame(root, padx=5, pady=5)
         main_frame.pack(expand=YES, fill=BOTH)
         # меню
-        menu = Menu(root, borderwidth=0)
-        root.config(menu=menu)
-        menu_bookmarks = Menu(menu, tearoff=False)
-        if config.bookmarks:
-            for bm_number, bookmark in enumerate(config.bookmarks):
-                menu_bookmarks.add_command(label=bookmark['name'], command=lambda n=bm_number: self.bookmark_connect(n))
-        else:
-            menu_bookmarks.add_command(label="Empty", state=DISABLED)
-        menu.add_cascade(label="Bookmarks", menu=menu_bookmarks)
-        menu_buttons = (
+        menu = AppMenu(root)
+        menu.add_bookmarks(config.bookmarks, self.bookmark_connect)
+        buttons = (
             ('Connect', self.connect),
             ('Disconnect', self.disconnect),
             ('Settings', self.show_settings),
             ('Quit', self.quit)
         )
-        for btn_txt, btn_cmd in menu_buttons:
-            menu.add_command(label=btn_txt, command=btn_cmd)
+        menu.add_buttons(buttons)
+        self.menu = menu
         # address entry, quick connect button
         quick_frame = Frame(main_frame, pady=3)
         quick_frame.pack(side=TOP, fill=X)
@@ -93,12 +87,14 @@ class Gui:
         return False
 
     def connect(self):
-        if self.dc and (self.dc.connected or self.dc.connecting):
-            self.disconnect()
-            self.root.after(200, self.connect)
-        elif self.dc_settings:
-            self.do_connect = True
-            self.connect_loop()
+        if not self.connect_loop_running:
+            if self.dc and (self.dc.connected or self.dc.connecting):
+                self.disconnect()
+                self.root.after(200, self.connect)
+            elif self.dc_settings:
+                self.do_connect = True
+                self.connect_loop_running = True
+                self.connect_loop()
 
     def disconnect(self):
         self.do_connect = False
@@ -107,16 +103,18 @@ class Gui:
             self.dc.disconnect()
 
     def quick_connect(self, event=None):
-        address = self.quick_address.get().strip().rstrip('/').split('//')[-1]
-        if address:
-            self.quick_address.delete(0, END)
-            self.quick_address.insert(0, address)
-            self.dc_settings = config.make_dc_settings(address)
-            self.connect()
+        if not self.connect_loop_running:
+            address = self.quick_address.get().strip().rstrip('/').split('//')[-1]
+            if address:
+                self.quick_address.delete(0, END)
+                self.quick_address.insert(0, address)
+                self.dc_settings = config.make_dc_settings(address)
+                self.connect()
 
     def bookmark_connect(self, bm_number):
-        self.dc_settings = config.make_dc_settings_from_bm(bm_number)
-        self.connect()
+        if not self.connect_loop_running:
+            self.dc_settings = config.make_dc_settings_from_bm(bm_number)
+            self.connect()
 
     def send(self, message):
         if self.dc and self.dc.connected:
@@ -134,6 +132,7 @@ class Gui:
             self.userlist.clear()
             self.statusbar.clear()
             if self.do_connect and config.settings['reconnect'] and config.settings['reconnect_delay'] > 0:
+                self.connect_loop_running = True
                 self.root.after(config.settings['reconnect_delay']*1000, self.connect_loop)
         else:
             if not self.pass_event.is_set():   # если сброшен, значит, DC-тред ждёт пароль
@@ -155,6 +154,10 @@ class Gui:
                 self.root.after(100, self.chat_loop)
                 self.root.after(100, self.userlist_loop)
                 self.root.after(100, self.check_loop)
+            self.root.after(2000, self.reset_connect_loop_flag)   # 2 секунды игнорируем повторные попытки подключиться
+
+    def reset_connect_loop_flag(self):   # lambda - это вам не function() {...}
+        self.connect_loop_running = False   # поэтому тривиальное действие приходится выносить в отдельную функцию
 
     def chat_loop(self):
         message = self.dc.message_queue.mget()
@@ -220,6 +223,26 @@ class Gui:
             self.root.after(1000, self.userlist_loop)
         else:
             self.userlist_loop_running = False
+
+
+class AppMenu(Menu):
+
+    def __init__(self, root):
+        super().__init__(root, borderwidth=0)
+        root.config(menu=self)
+
+    def add_bookmarks(self, bookmarks, action):
+        menu_bookmarks = Menu(self, tearoff=False)
+        if bookmarks:
+            for bm_number, bookmark in enumerate(bookmarks):
+                menu_bookmarks.add_command(label=bookmark['name'], command=lambda n=bm_number: action(n))
+        else:
+            menu_bookmarks.add_command(label="Empty", state=DISABLED)
+        self.add_cascade(label="Bookmarks", menu=menu_bookmarks)
+
+    def add_buttons(self, buttons):
+        for btn_txt, btn_cmd in buttons:
+            self.add_command(label=btn_txt, command=btn_cmd)
 
 
 class Chat(Frame):
@@ -346,61 +369,6 @@ class Chat(Frame):
             return 'break'
 
 
-class MessageBox(Frame):
-
-    def __init__(self, parent, side, expand=NO, fill=X, submit_callback=None):
-        Frame.__init__(self, parent)
-        self.pack(side=side, expand=expand, fill=fill)
-        Button(self, text="Send", command=self.submit).pack(side=RIGHT, fill=Y)
-        message_text = Text(self, height=2, font = 'Helvetica')
-        message_text.pack(side=LEFT, expand=YES, fill=X)
-        # запускаем после небольшой задержки, чтобы наш биндинг отработал после системного (который вставляет \n)
-        message_text.bind('<Return>', lambda e: self.submit())
-        message_text.bind('<Shift-Return>', lambda e: self.submit(lf2cr=True))   # '\n' --> '\r'
-        message_text.bind('<Control-Return>', lambda e: None)   # оверрайдим наш биндинг на Enter, передаём управление дальше системному (который вставит \n)
-        self.message_text = message_text
-        self.submit_callback = submit_callback
-
-    def submit(self, lf2cr=False):   # lf2cr=True - преобразовать \n в \r
-        message = self.message_text.get('1.0', 'end-1c')
-        if message:
-            if lf2cr: message = message.replace('\n', '\r')
-            if self.submit_callback:
-                sended = self.submit_callback(message)
-                if sended:
-                    self.message_text.delete('1.0', END)
-        return 'break'   # отменяем системный биндинг
-
-
-class StatusBar(Frame):
-
-    def __init__(self, parent, side, expand=NO, fill=X):
-
-        Frame.__init__(self, parent, height=24)
-        self.pack(side=side, expand=expand, fill=fill)
-        self._vars = {}
-        labels = (
-            ('Hub name', 0.4),
-            ('Hub topic', 0.4),
-            ('Usercount', 0.2)
-        )
-        relx=0
-        for col, (label, width) in enumerate(labels):
-            var = StringVar()
-            Label(self, textvariable=var, anchor=W, padx=3, borderwidth=2, relief=GROOVE).place(relx=relx, rely=0.5, relwidth=width, anchor=W)
-            relx += width
-            var_name = label.replace(' ', '').lower()
-            self._vars[var_name] = (var, label)
-            self.set(var_name, '')
-
-    def set(self, var, value):
-        self._vars[var][0].set(self._vars[var][1] + ": " + str(value))
-
-    def clear(self):
-        for var_name in self._vars:
-            self.set(var_name, '')
-
-
 class UserList(Frame):
 
     def __init__(self, parent, side, expand, fill, doubleclick_callback=None):
@@ -501,6 +469,61 @@ class UserList(Frame):
         if self.doubleclick_callback:
             nick = self.userlist.get(ACTIVE)
             self.doubleclick_callback(nick)
+
+
+class MessageBox(Frame):
+
+    def __init__(self, parent, side, expand=NO, fill=X, submit_callback=None):
+        Frame.__init__(self, parent)
+        self.pack(side=side, expand=expand, fill=fill)
+        Button(self, text="Send", command=self.submit).pack(side=RIGHT, fill=Y)
+        message_text = Text(self, height=2, font = 'Helvetica')
+        message_text.pack(side=LEFT, expand=YES, fill=X)
+        # запускаем после небольшой задержки, чтобы наш биндинг отработал после системного (который вставляет \n)
+        message_text.bind('<Return>', lambda e: self.submit())
+        message_text.bind('<Shift-Return>', lambda e: self.submit(lf2cr=True))   # '\n' --> '\r'
+        message_text.bind('<Control-Return>', lambda e: None)   # оверрайдим наш биндинг на Enter, передаём управление дальше системному (который вставит \n)
+        self.message_text = message_text
+        self.submit_callback = submit_callback
+
+    def submit(self, lf2cr=False):   # lf2cr=True - преобразовать \n в \r
+        message = self.message_text.get('1.0', 'end-1c')
+        if message:
+            if lf2cr: message = message.replace('\n', '\r')
+            if self.submit_callback:
+                sended = self.submit_callback(message)
+                if sended:
+                    self.message_text.delete('1.0', END)
+        return 'break'   # отменяем системный биндинг
+
+
+class StatusBar(Frame):
+
+    def __init__(self, parent, side, expand=NO, fill=X):
+
+        Frame.__init__(self, parent, height=24)
+        self.pack(side=side, expand=expand, fill=fill)
+        self._vars = {}
+        labels = (
+            ('Hub name', 0.4),
+            ('Hub topic', 0.4),
+            ('Usercount', 0.2)
+        )
+        relx=0
+        for col, (label, width) in enumerate(labels):
+            var = StringVar()
+            Label(self, textvariable=var, anchor=W, padx=3, borderwidth=2, relief=GROOVE).place(relx=relx, rely=0.5, relwidth=width, anchor=W)
+            relx += width
+            var_name = label.replace(' ', '').lower()
+            self._vars[var_name] = (var, label)
+            self.set(var_name, '')
+
+    def set(self, var, value):
+        self._vars[var][0].set(self._vars[var][1] + ": " + str(value))
+
+    def clear(self):
+        for var_name in self._vars:
+            self.set(var_name, '')
 
 
 class SettingsWindow(Toplevel):
