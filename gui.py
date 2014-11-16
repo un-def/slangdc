@@ -270,7 +270,7 @@ class Chat(Frame):
         chat.config(yscrollcommand=scroll.set)
         chat.pack(side=LEFT, expand=YES, fill=BOTH)
         tags = (
-            ('timestamp', font_normal, 'gray', ('<Button-1>', self.print_tag)),
+            ('timestamp', font_normal, 'gray', None),
             ('text', font_normal, 'black', ('<Button-1>', self.print_tag)),
             ('own_nick', font_bold, 'green', None),
             ('user_nick', font_bold, 'black', ('<Button-3>', self.nick_click)),
@@ -300,10 +300,19 @@ class Chat(Frame):
             tag_range = self.chat.tag_nextrange(tag, index)
         return (index, tag_range)
 
+    def _split_index(self, index):
+        return tuple(map(int, index.split('.')))
+
     def print_tag(self, tag, event):
         index, tag_range = self._get_tag_range(tag, event)
         tag_text = self.chat.get(*tag_range)
-        print("{0} @ {1}: [{2[0]}, {2[1]}] {3}".format(tag, index, tag_range, tag_text))
+        begin_line, begin_col = self._split_index(tag_range[0])
+        index_line, index_col = self._split_index(index)
+        line_text = tag_text.splitlines()[index_line-begin_line]
+        if index_line == begin_line:
+            index_col = index_col - begin_col
+        if index_col < len(line_text):
+            print(line_text[index_col])
         return 'break'
 
     def nick_click(self, tag, event):
