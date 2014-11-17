@@ -271,7 +271,7 @@ class Chat(Frame):
         chat.pack(side=LEFT, expand=YES, fill=BOTH)
         tags = (
             ('timestamp', font_normal, 'gray', None),
-            ('text', font_normal, 'black', ('<Button-1>', self.print_tag)),
+            ('text', font_normal, 'black', ('<Button-3>', self.extract_nick)),
             ('own_nick', font_bold, 'green', None),
             ('user_nick', font_bold, 'black', ('<Button-3>', self.nick_click)),
             ('op_nick', font_bold, 'red', ('<Button-3>', self.nick_click)),
@@ -283,8 +283,6 @@ class Chat(Frame):
             chat.tag_config(tag, font=font, foreground=color)
             if bind:
                 chat.tag_bind(tag, bind[0], lambda e, c=bind[1], t=tag: c(t, e))
-        # http://stackoverflow.com/questions/9957810/how-do-you-modify-the-current-selection-length-in-a-tkinter-text-widget
-        chat.bind('<Double-1>', lambda e: self.after(20, self.doubleclick))
         chat.bind('<Control-c>', self.text_copy)
         chat.bind('<Control-C>', self.text_copy)
         chat.bind('<Key>', self.nav_keys)
@@ -303,7 +301,8 @@ class Chat(Frame):
     def _split_index(self, index):
         return tuple(map(int, index.split('.')))
 
-    def print_tag(self, tag, event):
+    def extract_nick(self, tag, event):
+        # пытается извлечь из текста под курсором ник
         index, tag_range = self._get_tag_range(tag, event)
         tag_text = self.chat.get(*tag_range)
         begin_line, begin_col = self._split_index(tag_range[0])
@@ -312,54 +311,22 @@ class Chat(Frame):
         if index_line == begin_line:
             index_col = index_col - begin_col
         if index_col < len(line_text):
-            print(line_text[index_col])
-        return 'break'
+            around = re.search('^[^\s\<\>\$\|]+', line_text[index_col:])
+            if around:
+                nick = around.group(0)
+                if index_col > 0:
+                    around = re.search('[^\s\<\>\$\|]+$', line_text[:index_col])
+                    if around:
+                        nick = around.group(0) + nick
+                # '.' не отсекаем, т.к. ник может заканчиваться на неё (может и на ',', но гораздо реже)
+                if nick[-1] in ':,': nick = nick[:-1]
+                if len(nick) > 2:   # вряд ли распространены ники короче 3 символов
+                    self.nick_callback(nick)
 
     def nick_click(self, tag, event):
         index, tag_range = self._get_tag_range(tag, event)
         nick = self.chat.get(*tag_range)
         self.nick_callback(nick)
-
-    def doubleclick(self, event=None):
-        ''' пытается извлечь из выделенного по двойному клику текста и его
-            окружения ник:
-            при клике в строке '<user.nick> text' по 'nick' будет выделен
-            только фрагмент 'nick' ("слово" в понимании Tk)
-            метод проверяет окружающий текст, извлекает часть, похожую на ник
-            и передаёт её коллбэку, указанному при инициализации Chat
-            коллбэк должен вернуть True, если есть пользователь с таким ником,
-            в этом случае метод выделит ник ('user.nick')
-            NB: на некоторых системах при клике выделяется весь текст между
-            whitespace ('<user.nick>'), в этом случае используем воркэраунд
-        '''
-        line_begin, col_begin = self.chat.index('sel.first').split('.')
-        line_end, col_end = self.chat.index('sel.last').split('.')
-        if line_begin == line_end:   # только если выделена одна строка
-            line = line_begin
-            full_line = self.chat.get(line + '.0', line + '.end')
-            col_begin = int(col_begin)
-            col_end = int(col_end)
-            sel = full_line[col_begin:col_end]
-            modified = False
-            if col_begin:
-                around = re.search('[^ \r\n\t\<]+$', full_line[:col_begin])
-                if around:
-                    sel = around.group(0) + sel
-                    col_begin = col_begin - len(around.group(0))
-                    modified = True
-            if col_end < len(full_line):
-                around = re.search('^[^ \r\n\t\:,\>]+', full_line[col_end:])
-                if around:
-                    sel = sel + around.group(0)
-                    col_end = col_end + len(around.group(0))
-                    modified = True
-            if not modified:   # workaround - см. NB в docstring; с изменением выделения не будем париться, только стрипнем ник
-                sel_strip = re.search('[^\<\>\:,]+', sel)
-                if sel_strip:
-                    sel = sel_strip.group(0)
-            is_nick = self.nick_callback(sel)
-            if is_nick:
-                self.chat.tag_add('sel', '{}.{}'.format(line, col_begin), '{}.{}'.format(line, col_end))
 
     def add_message(self, msg_list):
         ''' msg_list - одно сообщение в виде списка/кортежа
