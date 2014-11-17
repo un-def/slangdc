@@ -1,5 +1,5 @@
 # -*-coding: UTF-8 -*-
-import time
+import webbrowser
 import re
 import threading
 from datetime import datetime
@@ -75,6 +75,28 @@ class Gui:
                 self.message_box.message_text.insert(INSERT, check_nick)
                 self.message_box.message_text.focus_set()
                 return True
+
+    def format_message(self, nick, text, me):
+        text = text.replace('\r', '')
+        nick_tag = 'user_nick'
+        if self.dc:
+            if nick == self.dc.nick:
+                nick_tag = 'own_nick'
+            else:
+                nick_role = self.check_user_role(nick)
+                if nick_role:
+                    nick_tag = nick_role + '_nick'
+        if not me:
+            msg = ['text', "<", nick_tag, nick, 'text', "> "]
+        else:
+            msg = ['text', "* ", nick_tag, nick, 'text', " "]
+        tags = ('text', 'link')
+        cur_tag = 0
+        text_splitted = re.split('((?:http|ftp)s?://[^\s]+)', text)
+        for part in text_splitted:
+            if part: msg.extend((tags[cur_tag], part))
+            cur_tag = 1 - cur_tag
+        return msg
 
     def check_user_role(self, nick):
         if self.dc and self.dc.userlist:
@@ -167,26 +189,15 @@ class Gui:
                 return
             else:
                 if message['type'] == slangdc.MSGCHAT:
-                    message['text'] = message['text'].replace('\r', '')
-                    nick_tag = 'user_nick'
-                    if self.dc:
-                        if message['nick'] == self.dc.nick:
-                            nick_tag = 'own_nick'
-                        else:
-                            nick_role = self.check_user_role(message['nick'])
-                            if nick_role:
-                                nick_tag = nick_role + '_nick'
-                    if not message['me']:
-                        msg = ('text', "<", nick_tag, message['nick'], 'text', "> " + message['text'])
-                    else:
-                        msg = ('text', "* ", nick_tag, message['nick'], 'text', " " + message['text'])
+                    msg = self.format_message(message['nick'], message['text'], message['me'])
                 elif message['type'] == slangdc.MSGPM:
-                    message['text'] = message['text'].replace('\r', '')
-                    if 'sender' in message:   # если это входящее сообщение
-                        pref = "PM from " + message['sender']
-                    else:   # если исходящее сообщение
-                        pref = "PM to " + message['recipient']
-                    msg = ('info', pref)
+                    if 'sender' in message:   # входящее сообщение
+                        nick = message['nick'] if message['nick'] else message['sender']
+                        msg = ['info', "*** PM from {}:".format(message['sender']), 'text', " "]
+                    else:   # исходящее сообщение
+                        nick = self.dc.nick
+                        msg = ['info', "*** PM to {}:".format(message['recipient']), 'text', " "]
+                    msg.extend(self.format_message(nick, message['text'], message['me']))
                 elif message['type'] == slangdc.MSGERR:
                     msg = ('error', "*** " + message['text'])
                 elif message['type'] == slangdc.MSGINFO:
@@ -201,8 +212,8 @@ class Gui:
                     else:
                         msg = None
                 if msg:
-                    timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S] ')
-                    self.chat.add_message(('timestamp', timestamp) + msg)
+                    timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
+                    self.chat.add_message('timestamp', timestamp, 'text', " ", *msg)
         self.root.after(10, self.chat_loop)
 
     def userlist_loop(self):
@@ -256,6 +267,7 @@ class Chat(Frame):
         font_size = 12
         font_normal = (font_family, font_size, 'normal')
         font_bold = (font_family, font_size, 'bold')
+        font_underline = (font_family, font_size, 'normal underline')
         tools_frame = Frame(self, height=30)
         tools_frame.pack_propagate(0)
         tools_frame.pack(side=BOTTOM, expand=NO, fill=BOTH)
@@ -272,6 +284,7 @@ class Chat(Frame):
         tags = (
             ('timestamp', font_normal, 'gray', None),
             ('text', font_normal, 'black', ('<Button-3>', self.extract_nick)),
+            ('link', font_underline, 'blue', ('<Button-1>', self.link_click)),
             ('own_nick', font_bold, 'green', None),
             ('user_nick', font_bold, 'black', ('<Button-3>', self.nick_click)),
             ('op_nick', font_bold, 'red', ('<Button-3>', self.nick_click)),
@@ -297,6 +310,10 @@ class Chat(Frame):
         if not tag_range or self.chat.compare(tag_range[1], '<', index):
             tag_range = self.chat.tag_nextrange(tag, index)
         return (index, tag_range)
+
+    def _get_tag_text(self, tag, event):
+        _, tag_range = self._get_tag_range(tag, event)
+        return self.chat.get(*tag_range)
 
     def _split_index(self, index):
         return tuple(map(int, index.split('.')))
@@ -324,13 +341,15 @@ class Chat(Frame):
                     self.nick_callback(nick)
 
     def nick_click(self, tag, event):
-        index, tag_range = self._get_tag_range(tag, event)
-        nick = self.chat.get(*tag_range)
+        nick = self._get_tag_text(tag, event)
         self.nick_callback(nick)
 
-    def add_message(self, msg_list):
-        ''' msg_list - одно сообщение в виде списка/кортежа
-            (tag1, text1, tag2, text2, ...)
+    def link_click(self, tag, event):
+        link = self._get_tag_text(tag, event)
+        webbrowser.open(link)
+
+    def add_message(self, *msg_list):
+        ''' add_message(tag1, text1, tag2, text2, ...)
         '''
         with self.lock:
             if self.empty:
