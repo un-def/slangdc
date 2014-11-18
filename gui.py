@@ -275,26 +275,37 @@ class Chat(Frame):
         self.autoscroll = BooleanVar()
         self.autoscroll.set(True)
         Checkbutton(tools_frame, text='Autoscroll', variable=self.autoscroll).place(x=100, rely=0.5, anchor=W)
-        chat = Text(self, wrap=WORD)
+        chat = Text(self, wrap=WORD, cursor='xterm')
         scroll = Scrollbar(self)
         scroll.config(command=chat.yview)
         scroll.pack(side=RIGHT, fill=Y)
         chat.config(yscrollcommand=scroll.set)
         chat.pack(side=LEFT, expand=YES, fill=BOTH)
-        tags = (
-            ('timestamp', font_normal, 'gray', None),
-            ('text', font_normal, 'black', ('<Button-3>', self.extract_nick)),
-            ('link', font_underline, 'blue', ('<Button-1>', self.link_click)),
-            ('own_nick', font_bold, 'green', None),
-            ('user_nick', font_bold, 'black', ('<Button-3>', self.nick_click)),
-            ('op_nick', font_bold, 'red', ('<Button-3>', self.nick_click)),
-            ('bot_nick', font_bold, 'magenta', ('<Button-3>', self.nick_click)),
-            ('error', font_normal, 'red', None),
-            ('info', font_normal, 'blue', None)
+        tags_styles = (
+            ('timestamp', font_normal, 'gray'),
+            ('text', font_normal, 'black'),
+            ('link', font_underline, 'blue'),
+            ('own_nick', font_bold, 'green'),
+            ('user_nick', font_bold, 'black'),
+            ('op_nick', font_bold, 'red'),
+            ('bot_nick', font_bold, 'magenta'),
+            ('error', font_normal, 'red'),
+            ('info', font_normal, 'blue')
         )
-        for tag, font, color, bind in tags:
+        tags_bindings = (
+            ('text', ('<Button-3>', self.extract_nick)),
+            ('link',    ('<Button-1>', self.link_click),
+                        ('<Enter>', self.link_enter),
+                        ('<Leave>', self.link_leave)
+            ),
+            ('user_nick', ('<Button-3>', self.nick_click)),
+            ('op_nick', ('<Button-3>', self.nick_click)),
+            ('bot_nick', ('<Button-3>', self.nick_click)),
+        )
+        for tag, font, color in tags_styles:
             chat.tag_config(tag, font=font, foreground=color)
-            if bind:
+        for tag, *bindings in tags_bindings:
+            for bind in bindings:
                 chat.tag_bind(tag, bind[0], lambda e, c=bind[1], t=tag: c(t, e))
         chat.bind('<Control-c>', self.text_copy)
         chat.bind('<Control-C>', self.text_copy)
@@ -347,6 +358,12 @@ class Chat(Frame):
     def link_click(self, tag, event):
         link = self._get_tag_text(tag, event)
         webbrowser.open(link)
+
+    def link_enter(self, tag, event):
+        self.chat.config(cursor='hand2')
+
+    def link_leave(self, tag, event):
+        self.chat.config(cursor='xterm')
 
     def add_message(self, *msg_list):
         ''' add_message(tag1, text1, tag2, text2, ...)
