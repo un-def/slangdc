@@ -3,7 +3,7 @@ import webbrowser
 import re
 import threading
 from datetime import datetime
-from tkinter import *
+from tkinter.tix import *
 from tkinter.messagebox import askyesno
 import slangdc
 import conf
@@ -49,10 +49,12 @@ class Gui:
         # message box, send button
         self.message_box = MessageBox(main_frame, side=BOTTOM, fill=X, submit_callback=self.send)
         # chat, userlist
-        chat_users_frame = Frame(main_frame)
-        chat_users_frame.pack(side=TOP, expand=YES, fill=BOTH)
-        self.userlist = UserList(chat_users_frame, side=RIGHT, expand=NO, fill=Y, doubleclick_callback=self.insert_nick)
-        self.chat = Chat(chat_users_frame, side=LEFT, expand=YES, fill=BOTH, nick_callback=self.insert_nick)
+        ch_ul_paned = PanedWindow(main_frame, orientation=HORIZONTAL, paneborderwidth=0)
+        ch_ul_paned.pack(side=TOP, expand=YES, fill=BOTH)
+        chat_pane = ch_ul_paned.add('chat', expand=1)
+        userlist_pane = ch_ul_paned.add('userlist', expand=0)
+        self.userlist = UserList(userlist_pane, expand=YES, fill=BOTH, doubleclick_callback=self.insert_nick)
+        self.chat = Chat(chat_pane, expand=YES, fill=BOTH, nick_callback=self.insert_nick)
 
     def mainloop(self):
         self.root.mainloop()
@@ -260,9 +262,9 @@ class Chat(Frame):
 
     max_lines = 500
 
-    def __init__(self, parent, side, expand, fill, nick_callback):
+    def __init__(self, parent, expand, fill, nick_callback):
         Frame.__init__(self, parent)
-        self.pack(side=side, expand=expand, fill=fill)
+        self.pack(expand=expand, fill=fill)
         font_family = 'Helvetica'
         font_size = 12
         font_normal = (font_family, font_size, 'normal')
@@ -402,18 +404,18 @@ class Chat(Frame):
 
 class UserList(Frame):
 
-    def __init__(self, parent, side, expand, fill, doubleclick_callback=None):
+    def __init__(self, parent, expand, fill, doubleclick_callback):
         Frame.__init__(self, parent)
-        self.pack(side=side, expand=expand, fill=fill)
+        self.pack(expand=expand, fill=fill)
         ul_frame = Frame(self)
         ul_frame.pack(side=TOP, expand=YES, fill=BOTH)
         font = ('Helvetica', 10, 'normal')
-        userlist = Listbox(ul_frame, selectmode=SINGLE, activestyle=DOTBOX, width=25, font=font)
+        userlist = Listbox(ul_frame, selectmode=SINGLE, activestyle=DOTBOX, font=font)
         scroll = Scrollbar(ul_frame)
         userlist.config(yscrollcommand=scroll.set)
         scroll.config(command=userlist.yview)
+        scroll.pack(side=RIGHT, expand=NO, fill=Y)
         userlist.pack(side=LEFT, expand=YES, fill=BOTH)
-        scroll.pack(side=LEFT, fill=Y)
         userlist.bind('<Double-1>', self.doubleclick)
         self.userlist = userlist
         filter_frame = Frame(self, height=30)
@@ -497,9 +499,8 @@ class UserList(Frame):
             return self.op_len + self.bot_len
 
     def doubleclick(self, event=None):
-        if self.doubleclick_callback:
-            nick = self.userlist.get(ACTIVE)
-            self.doubleclick_callback(nick)
+        nick = self.userlist.get(ACTIVE)
+        self.doubleclick_callback(nick)
 
 
 class MessageBox(Frame):
