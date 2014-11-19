@@ -508,7 +508,7 @@ class MessageBox(Frame):
         Frame.__init__(self, parent)
         self.pack(side=side, expand=expand, fill=fill)
         Button(self, text="Send", command=self.submit).pack(side=RIGHT, fill=Y)
-        message_text = Text(self, height=2, font = 'Helvetica')
+        message_text = Text(self, height=2, font = 'Helvetica', undo=1)
         message_text.pack(side=LEFT, expand=YES, fill=X)
         # запускаем после небольшой задержки, чтобы наш биндинг отработал после системного (который вставляет \n)
         message_text.bind('<Return>', lambda e: self.submit())
