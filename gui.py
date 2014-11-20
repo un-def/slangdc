@@ -18,10 +18,13 @@ class Gui:
         self.userlist_loop_running = False
         self.connect_loop_running = False
         self.do_connect = False
+        self.connected = False
+        self.tabs = {}
         self.pass_event = PassEvent()   # эвент для коммуникации между тредами (получения пароля)
         root = Tk()
         root.title("slangdc.Tk")
         root.protocol('WM_DELETE_WINDOW', root.iconify)
+        root.geometry('800x600+10+10')
         self.root = root
         main_frame = Frame(root, padx=5, pady=5)
         main_frame.pack(expand=YES, fill=BOTH)
@@ -48,6 +51,11 @@ class Gui:
         self.statusbar = StatusBar(main_frame, side=BOTTOM)
         # message box, send button
         self.message_box = MessageBox(main_frame, side=BOTTOM, fill=X, submit_callback=self.send)
+        # tabbar
+        tabbar = TabBar(main_frame, side=TOP, height=25, select_callback=lambda n: None, close_callback=lambda n: None)
+        tabbar.add_tab(name='hub', label='…', state=0)
+        self.tabbar = tabbar
+        self.tabs['hub'] = True
         # chat, userlist
         chat_users_frame = Frame(main_frame)
         chat_users_frame.pack(side=TOP, expand=YES, fill=BOTH)
@@ -114,6 +122,7 @@ class Gui:
                 self.disconnect()
                 self.root.after(200, self.connect)
             elif self.dc_settings:
+                self.tabbar.set_tab_label('hub', self.dc_settings['address'])
                 self.do_connect = True
                 self.connect_loop_running = True
                 self.connect_loop()
@@ -151,12 +160,18 @@ class Gui:
 
     def check_loop(self):
         if not (self.dc.connecting or self.dc.connected):
+            self.connected = False
             self.userlist.clear()
             self.statusbar.clear()
+            for tab in self.tabs:
+                self.tabbar.update_tab(tab, state=0)
             if self.do_connect and config.settings['reconnect'] and config.settings['reconnect_delay'] > 0:
                 self.connect_loop_running = True
                 self.root.after(config.settings['reconnect_delay']*1000, self.connect_loop)
         else:
+            if not self.connected:
+                self.connected = True
+                self.tabbar.update_tab('hub', state=1)
             if not self.pass_event.is_set():   # если сброшен, значит, DC-тред ждёт пароль
                 pass_window = PassWindow(self.root)
                 pass_window.wait_window()
@@ -194,6 +209,9 @@ class Gui:
                     if 'sender' in message:   # входящее сообщение
                         nick = message['nick'] if message['nick'] else message['sender']
                         msg = ['info', "*** PM from {}:".format(message['sender']), 'text', " "]
+                        if not 'pm|' + message['sender'] in self.tabs:
+                            self.tabbar.add_tab('pm|' + message['sender'], label=message['sender'], state=1)
+                            self.tabs['pm|' + message['sender']] = True
                     else:   # исходящее сообщение
                         nick = self.dc.nick
                         msg = ['info', "*** PM to {}:".format(message['recipient']), 'text', " "]
@@ -211,6 +229,14 @@ class Gui:
                         msg = ('info', "*** {0}s: {1}".format(message['state'], message['nick']))
                     else:
                         msg = None
+                    if isinstance(message['nick'], str):
+                        nicks = (message['nick'],)
+                    else:
+                        nicks = message['nick']
+                    for nick in nicks:
+                        if 'pm|'+nick in self.tabs:
+                            state = 1 if message['state'] == 'join' else 0
+                            self.tabbar.update_tab('pm|'+nick, state=state)
                 if msg:
                     timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
                     self.chat.add_message('timestamp', timestamp, 'text', " ", *msg)
@@ -254,6 +280,100 @@ class AppMenu(Menu):
     def add_buttons(self, buttons):
         for btn_txt, btn_cmd in buttons:
             self.add_command(label=btn_txt, command=btn_cmd)
+
+
+class TabBar(Frame):
+
+    tab_max_width = 0.2
+    color_on = '#99FF99'
+    color_off = '#FF9999'
+    color_sel = '#9999FF'
+    font_unsel = ('Helvetica', 9, 'normal')
+    font_sel = ('Helvetica', 9, 'bold')
+
+    def __init__(self, parent, side, select_callback, close_callback, height=30):
+        super().__init__(parent, height=height)
+        self.select_callback = select_callback
+        self.close_callback = close_callback
+        self.pack(side=side, expand=NO, fill=X)
+        self.tabs = []
+        self.selected = None   # name выбранной вкладки
+
+    def calculate_width(self):
+        if len(self.tabs) > 0:
+            width = 1 / len(self.tabs)
+            if width > self.tab_max_width: width = self.tab_max_width
+            return width
+        else:
+            return False
+
+    def tab_index(self, name):
+        for index, tab in enumerate(self.tabs):
+            if tab['name'] == name: return index
+        return -1
+
+    def add_tab(self, name, label, state=0):
+        tab = {'name': name}
+        bg = self.color_on if state else self.color_off
+        button = Frame(self, bg=bg, bd=1, relief=RAISED, padx=3)
+        label = Label(button, bg=bg, text=label, font=self.font_unsel, anchor=NW)
+        close_ = Label(button, font=('Helvetica', 5, 'bold'), bg='red', fg='white', text=' X ')
+        close_.pack(side=RIGHT)
+        label.pack(side=LEFT, expand=YES, fill=BOTH)
+        close_.bind('<Button-1>', lambda e: self.close_tab(name))
+        label.bind('<Button-1>', lambda e: self.select_tab(name))
+        tab['button'] = button
+        tab['label'] = label
+        tab['state'] = state
+        self.tabs.append(tab)
+        self.draw_tabs()
+
+    def close_tab(self, name):
+        index = self.tab_index(name)
+        if index == -1: return False
+        tab = self.tabs.pop(index)
+        tab['button'].place_forget()
+        tab['button'].destroy()
+        self.close_callback(name)
+        self.draw_tabs()
+        if self.selected == name:   # если закрываем выбранную вкладку, выберем первую
+            if self.tabs:
+                self.selected = self.tabs[0]['name']
+                self.select_tab(self.selected)
+            else:
+                self.selected = None
+
+    def draw_tabs(self):
+        width = self.calculate_width()
+        if width:
+            relx = 0
+            for tab in self.tabs:
+                relh = 1 if tab['name'] == self.selected else 0.8
+                tab['button'].place(relx=relx, rely=1, relheight=relh, relwidth=width, anchor='sw')
+                relx += width
+
+    def select_tab(self, name):
+        index = self.tab_index(name)
+        if index == -1: return False
+        if self.selected:
+            self.tabs[self.tab_index(self.selected)]['label'].config(font=self.font_unsel)
+        self.selected = name
+        self.tabs[index]['label'].config(font=self.font_sel)
+        self.draw_tabs()
+        self.select_callback(name)
+
+    def set_tab_label(self, name, label):
+        index = self.tab_index(name)
+        if index == -1: return False
+        self.tabs[index]['label'].config(text=label)
+
+    def update_tab(self, name, state):
+        index = self.tab_index(name)
+        if index == -1: return False
+        self.tabs[index]['state'] = int(state)
+        bg = self.color_on if state else self.color_off
+        self.tabs[index]['button'].config(bg=bg)
+        self.tabs[index]['label'].config(bg=bg)
 
 
 class Chat(Frame):
