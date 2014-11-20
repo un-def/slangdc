@@ -56,6 +56,7 @@ class Gui:
         tabbar.add_tab(name='hub', label='…', state=0)
         self.tabbar = tabbar
         self.tabs['hub'] = True
+        self.tabbar.select_tab('hub')
         # chat, userlist
         chat_users_frame = Frame(main_frame)
         chat_users_frame.pack(side=TOP, expand=YES, fill=BOTH)
@@ -169,7 +170,7 @@ class Gui:
                 self.connect_loop_running = True
                 self.root.after(config.settings['reconnect_delay']*1000, self.connect_loop)
         else:
-            if not self.connected:
+            if not self.connected and self.dc.connected:
                 self.connected = True
                 self.tabbar.update_tab('hub', state=1)
             if not self.pass_event.is_set():   # если сброшен, значит, DC-тред ждёт пароль
