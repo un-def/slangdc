@@ -434,7 +434,7 @@ class UserList(Frame):
         return sum((self.op_len, self.bot_len, self.user_len))
 
     def add(self, index, user, role):
-        self.userlist.insert(index, user)
+        self.userlist.insert(index, " " + user)
         self.userlist.itemconfig(index, foreground=self.colors[role])
 
     def remove(self, index):
@@ -498,7 +498,7 @@ class UserList(Frame):
 
     def doubleclick(self, event=None):
         if self.doubleclick_callback:
-            nick = self.userlist.get(ACTIVE)
+            nick = self.userlist.get(ACTIVE)[1:]
             self.doubleclick_callback(nick)
 
 
