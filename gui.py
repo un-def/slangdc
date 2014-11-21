@@ -19,7 +19,6 @@ class Gui:
         self.connect_loop_running = False
         self.do_connect = False
         self.connected = False
-        self.tabs = {}
         self.pass_event = PassEvent()   # эвент для коммуникации между тредами (получения пароля)
         root = Tk()
         root.title("slangdc.Tk")
@@ -49,19 +48,81 @@ class Gui:
         Button(quick_frame, text="Quick connect", command=self.quick_connect).pack(side=LEFT)
         # statusbar
         self.statusbar = StatusBar(main_frame, side=BOTTOM)
-        # message box, send button
-        self.message_box = MessageBox(main_frame, side=BOTTOM, fill=X, submit_callback=self.send)
         # tabbar
-        tabbar = TabBar(main_frame, side=TOP, height=25, select_callback=lambda n: None, close_callback=lambda n: None)
-        tabbar.add_tab(name='hub', label='…', state=0)
-        self.tabbar = tabbar
-        self.tabs['hub'] = True
-        self.tabbar.select_tab('hub')
-        # chat, userlist
-        chat_users_frame = Frame(main_frame)
-        chat_users_frame.pack(side=TOP, expand=YES, fill=BOTH)
-        self.userlist = UserList(chat_users_frame, side=RIGHT, expand=NO, fill=Y, doubleclick_callback=self.insert_nick)
-        self.chat = Chat(chat_users_frame, side=LEFT, expand=YES, fill=BOTH, nick_callback=self.insert_nick)
+        self.tabbar = TabBar(main_frame, side=TOP, height=25, select_callback=self.select_tab, close_callback=self.close_tab)
+        # chat, userlist, message box
+        tab_frame = Frame(main_frame)
+        tab_frame.pack(side=TOP, expand=YES, fill=BOTH)
+        self.chat = Chat(tab_frame, nick_callback=self.insert_nick)
+        self.message_box = MessageBox(tab_frame, submit_callback=self.chat_send)
+        self.userlist = UserList(tab_frame, doubleclick_callback=self.insert_nick)
+        self.tab_frame = tab_frame
+        self.tabs = {}
+        self.current_tab = None
+
+    def add_tab(self, type, label='', nick=None, state=0, select=False):
+        if type == 'hub':
+            tab_name = 'hub'
+            self.tabs['hub'] = {}
+        else:
+            tab_name = 'pm|' + nick
+            self.tabs[tab_name] = {}
+            self.tabs[tab_name]['chat'] = Chat(self.tab_frame, nick_callback=None)
+            self.tabs[tab_name]['message_box'] = MessageBox(self.tab_frame, submit_callback=lambda t, n=nick: self.pm_send(n, t))
+        self.tabs[tab_name]['label'] = label
+        self.tabs[tab_name]['unread'] = 0
+        self.tabbar.add_tab(name=tab_name, label=label, state=state)
+        if select: self.tabbar.select_tab(tab_name)
+
+    def tab_show_unread(self, tab_name):
+        label = "({0[unread]}) {0[label]}".format(self.tabs[tab_name])
+        self.tabbar.set_tab_label(tab_name, label=label)
+
+    def tab_hide_unread(self, tab_name):
+        self.tabbar.set_tab_label(tab_name, label=self.tabs[tab_name]['label'])
+
+    def set_tab_label(self, tab_name, label):
+        self.tabs[tab_name]['label'] = label
+        self.tabbar.set_tab_label(tab_name, label=label)
+
+    def set_tab_state(self, tab_name, state):
+        self.tabbar.update_tab(tab_name, state=state)
+
+    def place_tab(self, tab_name):
+        if tab_name == 'hub':
+            self.chat.place(relx=0, rely=0, relheight=1, height=-50, relwidth=1, width=-200, anchor=NW)
+            self.message_box.place(relx=0, rely=1, height=50, relwidth=1, width=-200, anchor=SW)
+            self.userlist.place(relx=1, rely=0, relheight=1, width=200, anchor=NE)
+        else:
+            self.tabs[tab_name]['chat'].place(relx=0, rely=0, relheight=1, height=-50, relwidth=1, anchor=NW)
+            self.tabs[tab_name]['message_box'].place(relx=0, rely=1, height=50, relwidth=1, anchor=SW)
+
+    def deplace_tab(self, tab_name):
+        if tab_name == 'hub':
+            self.chat.place_forget()
+            self.message_box.place_forget()
+            self.userlist.place_forget()
+        else:
+            self.tabs[tab_name]['chat'].place_forget()
+            self.tabs[tab_name]['message_box'].place_forget()
+
+    def select_tab(self, tab_name):
+        if self.current_tab in self.tabs:
+            self.deplace_tab(self.current_tab)
+        self.place_tab(tab_name)
+        self.tabs[tab_name]['unread'] = 0
+        self.tab_hide_unread(tab_name)
+        self.current_tab = tab_name
+
+    def close_tab(self, tab_name):
+        self.deplace_tab(tab_name)
+        if tab_name == 'hub':
+            self.disconnect()
+            self.chat.clear()
+        else:
+            self.tabs[tab_name]['chat'].destroy()
+            self.tabs[tab_name]['message_box'].destroy()
+        self.tabs.pop(tab_name)
 
     def mainloop(self):
         self.root.mainloop()
@@ -123,7 +184,9 @@ class Gui:
                 self.disconnect()
                 self.root.after(200, self.connect)
             elif self.dc_settings:
-                self.tabbar.set_tab_label('hub', self.dc_settings['address'])
+                if not 'hub' in self.tabs:
+                    self.add_tab(type='hub', state=0, select=True)
+                self.set_tab_label('hub', self.dc_settings['address'])
                 self.do_connect = True
                 self.connect_loop_running = True
                 self.connect_loop()
@@ -148,13 +211,16 @@ class Gui:
             self.dc_settings = config.make_dc_settings_from_bm(bm_number)
             self.connect()
 
-    def send(self, message):
+    def chat_send(self, message):
         if self.dc and self.dc.connected:
-            if message.startswith('/pm '):
-                nick, text = message[4:].split(' ', 1)
-                self.dc.pm_send(nick, text)
-            else:
-                self.dc.chat_send(message)
+            self.dc.chat_send(message)
+            return True
+        else:
+            return False
+
+    def pm_send(self, recipient, message):
+        if self.dc and self.dc.connected and recipient in self.dc.userlist:
+            self.dc.pm_send(recipient, message)
             return True
         else:
             return False
@@ -165,14 +231,14 @@ class Gui:
             self.userlist.clear()
             self.statusbar.clear()
             for tab in self.tabs:
-                self.tabbar.update_tab(tab, state=0)
+                self.set_tab_state(tab, state=0)
             if self.do_connect and config.settings['reconnect'] and config.settings['reconnect_delay'] > 0:
                 self.connect_loop_running = True
                 self.root.after(config.settings['reconnect_delay']*1000, self.connect_loop)
         else:
             if not self.connected and self.dc.connected:
                 self.connected = True
-                self.tabbar.update_tab('hub', state=1)
+                self.set_tab_state('hub', state=1)
             if not self.pass_event.is_set():   # если сброшен, значит, DC-тред ждёт пароль
                 pass_window = PassWindow(self.root)
                 pass_window.wait_window()
@@ -204,19 +270,26 @@ class Gui:
                 self.chat_loop_running = False
                 return
             else:
+                chat = self.chat
                 if message['type'] == slangdc.MSGCHAT:
                     msg = self.format_message(message['nick'], message['text'], message['me'])
+                    if self.current_tab != 'hub':
+                        self.tabs['hub']['unread'] += 1
+                        self.tab_show_unread('hub')
                 elif message['type'] == slangdc.MSGPM:
                     if 'sender' in message:   # входящее сообщение
                         nick = message['nick'] if message['nick'] else message['sender']
-                        msg = ['info', "*** PM from {}:".format(message['sender']), 'text', " "]
-                        if not 'pm|' + message['sender'] in self.tabs:
-                            self.tabbar.add_tab('pm|' + message['sender'], label=message['sender'], state=1)
-                            self.tabs['pm|' + message['sender']] = True
+                        tab_name = 'pm|' + message['sender']
+                        if not tab_name in self.tabs:
+                            self.add_tab(type='pm', nick=message['sender'], label=message['sender'], state=1)
+                        if self.current_tab != tab_name:
+                            self.tabs[tab_name]['unread'] += 1
+                            self.tab_show_unread(tab_name)
+                        chat = self.tabs[tab_name]['chat']
                     else:   # исходящее сообщение
                         nick = self.dc.nick
-                        msg = ['info', "*** PM to {}:".format(message['recipient']), 'text', " "]
-                    msg.extend(self.format_message(nick, message['text'], message['me']))
+                        chat = self.tabs['pm|'+message['recipient']]['chat']
+                    msg = self.format_message(nick, message['text'], message['me'])
                 elif message['type'] == slangdc.MSGERR:
                     msg = ('error', "*** " + message['text'])
                 elif message['type'] == slangdc.MSGINFO:
@@ -237,10 +310,10 @@ class Gui:
                     for nick in nicks:
                         if 'pm|'+nick in self.tabs:
                             state = 1 if message['state'] == 'join' else 0
-                            self.tabbar.update_tab('pm|'+nick, state=state)
+                            self.set_tab_state('pm|'+nick, state=state)
                 if msg:
                     timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
-                    self.chat.add_message('timestamp', timestamp, 'text', " ", *msg)
+                    chat.add_message('timestamp', timestamp, 'text', " ", *msg)
         self.root.after(10, self.chat_loop)
 
     def userlist_loop(self):
@@ -381,21 +454,20 @@ class Chat(Frame):
 
     max_lines = 500
 
-    def __init__(self, parent, side, expand, fill, nick_callback):
+    def __init__(self, parent, nick_callback=None):
         Frame.__init__(self, parent)
-        self.pack(side=side, expand=expand, fill=fill)
+        #self.pack(side=side, expand=expand, fill=fill)
         font_family = 'Helvetica'
         font_size = 12
         font_normal = (font_family, font_size, 'normal')
         font_bold = (font_family, font_size, 'bold')
         font_underline = (font_family, font_size, 'normal underline')
-        tools_frame = Frame(self, height=30)
-        tools_frame.pack_propagate(0)
+        tools_frame = Frame(self, pady=5)
         tools_frame.pack(side=BOTTOM, expand=NO, fill=BOTH)
-        Button(tools_frame, text='Clear chat', command=self.clear).place(x=0, rely=0.5, anchor=W)
+        Button(tools_frame, text='Clear chat', command=self.clear).pack(side=LEFT)
         self.autoscroll = BooleanVar()
         self.autoscroll.set(True)
-        Checkbutton(tools_frame, text='Autoscroll', variable=self.autoscroll).place(x=100, rely=0.5, anchor=W)
+        Checkbutton(tools_frame, text='Autoscroll', variable=self.autoscroll).pack(side=LEFT)
         chat = Text(self, wrap=WORD, cursor='xterm')
         scroll = Scrollbar(self)
         scroll.config(command=chat.yview)
@@ -451,30 +523,32 @@ class Chat(Frame):
         return tuple(map(int, index.split('.')))
 
     def extract_nick(self, tag, event):
-        # пытается извлечь из текста под курсором ник
-        index, tag_range = self._get_tag_range(tag, event)
-        tag_text = self.chat.get(*tag_range)
-        begin_line, begin_col = self._split_index(tag_range[0])
-        index_line, index_col = self._split_index(index)
-        line_text = tag_text.splitlines()[index_line-begin_line]
-        if index_line == begin_line:
-            index_col = index_col - begin_col
-        if index_col < len(line_text):
-            around = re.search('^[^\s\<\>\$\|]+', line_text[index_col:])
-            if around:
-                nick = around.group(0)
-                if index_col > 0:
-                    around = re.search('[^\s\<\>\$\|]+$', line_text[:index_col])
-                    if around:
-                        nick = around.group(0) + nick
-                # '.' не отсекаем, т.к. ник может заканчиваться на неё (может и на ',', но гораздо реже)
-                if nick[-1] in ':,': nick = nick[:-1]
-                if len(nick) > 2:   # вряд ли распространены ники короче 3 символов
-                    self.nick_callback(nick)
+        if self.nick_callback:
+            # пытается извлечь из текста под курсором ник
+            index, tag_range = self._get_tag_range(tag, event)
+            tag_text = self.chat.get(*tag_range)
+            begin_line, begin_col = self._split_index(tag_range[0])
+            index_line, index_col = self._split_index(index)
+            line_text = tag_text.splitlines()[index_line-begin_line]
+            if index_line == begin_line:
+                index_col = index_col - begin_col
+            if index_col < len(line_text):
+                around = re.search('^[^\s\<\>\$\|]+', line_text[index_col:])
+                if around:
+                    nick = around.group(0)
+                    if index_col > 0:
+                        around = re.search('[^\s\<\>\$\|]+$', line_text[:index_col])
+                        if around:
+                            nick = around.group(0) + nick
+                    # '.' не отсекаем, т.к. ник может заканчиваться на неё (может и на ',', но гораздо реже)
+                    if nick[-1] in ':,': nick = nick[:-1]
+                    if len(nick) > 2:   # вряд ли распространены ники короче 3 символов
+                        self.nick_callback(nick)
 
     def nick_click(self, tag, event):
-        nick = self._get_tag_text(tag, event)
-        self.nick_callback(nick)
+        if self.nick_callback:
+            nick = self._get_tag_text(tag, event)
+            self.nick_callback(nick)
 
     def link_click(self, tag, event):
         link = self._get_tag_text(tag, event)
@@ -523,9 +597,9 @@ class Chat(Frame):
 
 class UserList(Frame):
 
-    def __init__(self, parent, side, expand, fill, doubleclick_callback=None):
+    def __init__(self, parent, doubleclick_callback=None):
         Frame.__init__(self, parent)
-        self.pack(side=side, expand=expand, fill=fill)
+        #self.pack(side=side, expand=expand, fill=fill)
         ul_frame = Frame(self)
         ul_frame.pack(side=TOP, expand=YES, fill=BOTH)
         font = ('Helvetica', 10, 'normal')
@@ -537,12 +611,11 @@ class UserList(Frame):
         scroll.pack(side=LEFT, fill=Y)
         userlist.bind('<Double-1>', self.doubleclick)
         self.userlist = userlist
-        filter_frame = Frame(self, height=30)
-        filter_frame.pack_propagate(0)
-        filter_frame.pack(side=BOTTOM, expand=NO, fill=BOTH)
+        filter_frame = Frame(self)
+        filter_frame.pack(side=BOTTOM, expand=NO, fill=BOTH, pady=5)
         self.filter_var = StringVar()
         filter_entry = Entry(filter_frame, textvariable=self.filter_var)
-        filter_entry.place(relx=0.5, rely=0.5, relwidth=0.99, anchor=CENTER)
+        filter_entry.pack(expand=YES, fill=BOTH)
         self.colors = {
             'user': 'black',
             'op': 'red',
@@ -625,9 +698,9 @@ class UserList(Frame):
 
 class MessageBox(Frame):
 
-    def __init__(self, parent, side, expand=NO, fill=X, submit_callback=None):
+    def __init__(self, parent, submit_callback=None):
         Frame.__init__(self, parent)
-        self.pack(side=side, expand=expand, fill=fill)
+        #self.pack(side=side, expand=expand, fill=fill)
         Button(self, text="Send", command=self.submit).pack(side=RIGHT, fill=Y)
         message_text = Text(self, height=2, font = 'Helvetica', undo=1)
         message_text.pack(side=LEFT, expand=YES, fill=X)
