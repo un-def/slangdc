@@ -9,17 +9,229 @@ import slangdc
 import conf
 
 
-class Gui:
+def recursive_destroy(widget):
+    for child in widget.winfo_children():
+        recursive_destroy(child)
+    widget.destroy()
 
-    def __init__(self):
+
+class HubTab:
+
+    def __init__(self, parent, dc_settings):
+        self.visible = False
         self.dc = None
-        self.dc_settings = None
+        self.dc_settings = dc_settings
         self.chat_loop_running = False
         self.userlist_loop_running = False
         self.connect_loop_running = False
         self.do_connect = False
         self.connected = False
         self.pass_event = PassEvent()   # эвент для коммуникации между тредами (получения пароля)
+        self.frame = Frame(parent)
+        self.message_box = MessageBox(self.frame, side=BOTTOM, expand=NO, fill=X, submit_callback=self.chat_send)
+        chat_ul_frame = Frame(self.frame)
+        chat_ul_frame.pack(side=TOP, expand=YES, fill=BOTH)
+        self.userlist = UserList(chat_ul_frame, side=RIGHT, expand=NO, fill=Y, doubleclick_callback=self.insert_nick)
+        self.chat = Chat(chat_ul_frame, side=LEFT, expand=YES, fill=BOTH, nick_callback=self.insert_nick)
+
+    def show(self):
+        self.visible = True
+        self.frame.pack(expand=YES, fill=BOTH)
+
+    def hide(self):
+        self.visible = False
+        self.frame.pack_forget()
+
+    def close(self):
+        self.disconnect()
+        self.hide()
+        recursive_destroy(self.frame)
+
+    def connect(self):
+        if not self.connect_loop_running:
+            if self.dc and (self.dc.connected or self.dc.connecting):
+                self.disconnect()
+                self.frame.after(200, self.connect)
+            else:
+                self.do_connect = True
+                self.connect_loop_running = True
+                self.connect_loop()
+
+    def disconnect(self):
+        self.do_connect = False
+        self.pass_event.password = None   # сбросим пароль, введённый вручную
+        if self.dc and self.dc.connected:
+            self.dc.disconnect()
+
+#####
+
+    def insert_nick(self, check_nick):
+        if self.dc and check_nick != self.dc.nick and self.dc.userlist and check_nick in self.dc.userlist:
+                if self.message_box.message_text.index(INSERT) == '1.0':   # если курсор стоит в начале поля ввода,
+                    check_nick = check_nick + config.settings['chat_addr_sep'] + ' '   # то вставляем ник как обращение
+                self.message_box.message_text.insert(INSERT, check_nick)
+                self.message_box.message_text.focus_set()
+                return True
+
+    def format_message(self, nick, text, me):
+        text = text.replace('\r', '')
+        nick_tag = 'user_nick'
+        if self.dc:
+            if nick == self.dc.nick:
+                nick_tag = 'own_nick'
+            else:
+                nick_role = self.check_user_role(nick)
+                if nick_role:
+                    nick_tag = nick_role + '_nick'
+        if not me:
+            msg = ['text', "<", nick_tag, nick, 'text', "> "]
+        else:
+            msg = ['text', "* ", nick_tag, nick, 'text', " "]
+        tags = ('text', 'link')
+        cur_tag = 0
+        text_splitted = re.split('((?:http|ftp)s?://[^\s]+)', text)
+        for part in text_splitted:
+            if part: msg.extend((tags[cur_tag], part))
+            cur_tag = 1 - cur_tag
+        return msg
+
+    def check_user_role(self, nick):
+        if self.dc and self.dc.userlist:
+            if nick in self.dc.userlist.bots:
+                return 'bot'
+            elif nick in self.dc.userlist.ops:
+                return 'op'
+            elif nick in self.dc.userlist:
+                return 'user'
+        return False
+
+    def chat_send(self, message):
+        if self.dc and self.dc.connected:
+            self.dc.chat_send(message)
+            return True
+        else:
+            return False
+
+    def pm_send(self, recipient, message):
+        if self.dc and self.dc.connected and recipient in self.dc.userlist:
+            self.dc.pm_send(recipient, message)
+            return True
+        else:
+            return False
+
+    def check_loop(self):
+        if not (self.dc.connecting or self.dc.connected):
+            self.connected = False
+            self.userlist.clear()
+            #@self.statusbar.clear()
+            if self.do_connect and config.settings['reconnect'] and config.settings['reconnect_delay'] > 0:
+                self.connect_loop_running = True
+                self.frame.after(config.settings['reconnect_delay']*1000, self.connect_loop)
+        else:
+            if not self.connected and self.dc.connected:
+                self.connected = True
+            if not self.pass_event.is_set():   # если сброшен, значит, DC-тред ждёт пароль
+                pass_window = PassWindow(self.root)
+                pass_window.wait_window()
+                self.pass_event.password = pass_window.password.get()   # передамим в DC-тред через атрибут эвента
+                self.pass_event.set()   # устанавливаем обратно в True (информируем DC-тред, что пароль получен)
+            self.frame.after(100, self.check_loop)
+
+    def connect_loop(self):
+        if self.chat_loop_running or self.userlist_loop_running:
+            self.frame.after(100, self.connect_loop)
+        else:
+            if self.do_connect:
+                self.dc = slangdc.DCClient(**self.dc_settings)
+                DCThread(self.dc, self.pass_event).start()
+                self.chat_loop_running = True
+                self.chat_userlist_running = True
+                self.frame.after(100, self.chat_loop)
+                self.frame.after(100, self.userlist_loop)
+                self.frame.after(100, self.check_loop)
+            self.frame.after(2000, self.reset_connect_loop_flag)   # 2 секунды игнорируем повторные попытки подключиться
+
+    def reset_connect_loop_flag(self):   # lambda - это вам не function() {...}
+        self.connect_loop_running = False   # поэтому тривиальное действие приходится выносить в отдельную функцию
+
+    def chat_loop(self):
+        message = self.dc.message_queue.mget()
+        if message:
+            if message['type'] == slangdc.MSGEND:
+                self.chat_loop_running = False
+                return
+            else:
+                chat = self.chat
+                if message['type'] == slangdc.MSGCHAT:
+                    msg = self.format_message(message['nick'], message['text'], message['me'])
+                    #@if self.current_tab != 'hub':
+                    #@    self.tabs['hub']['unread'] += 1
+                    #@    self.tab_show_unread('hub')
+                elif message['type'] == slangdc.MSGPM:
+                    if 'sender' in message:   # входящее сообщение
+                        nick = message['nick'] if message['nick'] else message['sender']
+                        #@tab_name = 'pm|' + message['sender']
+                        #@if not tab_name in self.tabs:
+                        #@    self.add_tab(type='pm', nick=message['sender'], label=message['sender'], state=1)
+                        #@if self.current_tab != tab_name:
+                        #@    self.tabs[tab_name]['unread'] += 1
+                        #@    self.tab_show_unread(tab_name)
+                        #@chat = self.tabs[tab_name]['chat']
+                    else:   # исходящее сообщение
+                        nick = self.dc.nick
+                        #@chat = self.tabs['pm|'+message['recipient']]['chat']
+                    msg = self.format_message(nick, message['text'], message['me'])
+                elif message['type'] == slangdc.MSGERR:
+                    msg = ('error', "*** " + message['text'])
+                elif message['type'] == slangdc.MSGINFO:
+                    msg = ('info', "*** " + message['text'])
+                    if message['text'].startswith('HubName: '):
+                        #@self.statusbar.set('hubname', self.dc.hubname)
+                        ...
+                    elif message['text'].startswith('HubTopic: '):
+                        #@self.statusbar.set('hubtopic', self.dc.hubtopic)
+                        ...
+                elif message['type'] == slangdc.MSGNICK:
+                    if config.settings['show_joins'] and isinstance(message['nick'], str):
+                        msg = ('info', "*** {0}s: {1}".format(message['state'], message['nick']))
+                    else:
+                        msg = None
+                    #@if isinstance(message['nick'], str):
+                    #@    nicks = (message['nick'],)
+                    #@else:
+                    #@    nicks = message['nick']
+                    #@for nick in nicks:
+                    #@    if 'pm|'+nick in self.tabs:
+                    #@        state = 1 if message['state'] == 'join' else 0
+                    #@        self.set_tab_state('pm|'+nick, state=state)
+                if msg:
+                    timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
+                    chat.add_message('timestamp', timestamp, 'text', " ", *msg)
+        self.frame.after(10, self.chat_loop)
+
+    def userlist_loop(self):
+        if self.dc.connecting or self.dc.connected:
+            if self.visible and self.dc.userlist:   # не обновляем список, пока таб не выбран
+                ### копировать надо бы с локом
+                bots = self.dc.userlist.bots.copy()
+                ops = self.dc.userlist.ops - bots
+                users = (self.dc.userlist - ops - bots)
+                count_all = sum(map(len, (bots, ops, users)))   # не len(self.dc.userlist), т.к. он может измениться в процессе
+                self.userlist.update_list(ops, bots, users)
+                count_filter = self.userlist.len()
+                if count_filter != count_all:
+                    count = "{0:d}/{1:d}".format(count_filter, count_all)
+                else:
+                    count = str(count_all)
+                #@self.statusbar.set('usercount', count)
+            self.frame.after(1000, self.userlist_loop)
+        else:
+            self.userlist_loop_running = False
+
+
+class Gui:
+
+    def __init__(self):
         root = Tk()
         root.title("slangdc.Tk")
         root.protocol('WM_DELETE_WINDOW', root.iconify)
@@ -27,7 +239,7 @@ class Gui:
         self.root = root
         main_frame = Frame(root, padx=5, pady=5)
         main_frame.pack(expand=YES, fill=BOTH)
-        # меню
+        # menu
         menu = AppMenu(root)
         menu.add_bookmarks(config.bookmarks, self.bookmark_connect)
         buttons = (
@@ -48,18 +260,102 @@ class Gui:
         Button(quick_frame, text="Quick connect", command=self.quick_connect).pack(side=LEFT)
         # statusbar
         self.statusbar = StatusBar(main_frame, side=BOTTOM)
-        # tabbar
-        self.tabbar = TabBar(main_frame, side=TOP, height=25, select_callback=self.select_tab, close_callback=self.close_tab)
-        # chat, userlist, message box
-        tab_frame = Frame(main_frame)
-        tab_frame.pack(side=TOP, expand=YES, fill=BOTH)
-        self.chat = Chat(tab_frame, nick_callback=self.insert_nick)
-        self.message_box = MessageBox(tab_frame, submit_callback=self.chat_send)
-        self.userlist = UserList(tab_frame, doubleclick_callback=self.insert_nick)
-        self.tab_frame = tab_frame
-        self.tabs = {}
-        self.current_tab = None
+        # tabbar, tab
+        self.tabbar = TabBar(main_frame, side=TOP, height=25, select_callback=self.tab_select_cb, close_callback=self.tab_close_cb)
+        self.tab_frame = Frame(main_frame)
+        self.tab_frame.pack(side=TOP, expand=YES, fill=BOTH)
+        #
+        self.hub_tabs = {}
+        self.current_tab = {}   # {type_: 'hub', name: 'allavtovo.ru'}
 
+### gui ###
+
+    def mainloop(self):
+        self.root.mainloop()
+
+    def connect(self, dc_settings=None):
+        ''' без аргументов - (пере)подключается в выбранной вкладке (всегда);
+            переданы dc_settings - открывает новую вкладку и коннектится или
+            активирует вкладку, если уже открыта (в этом случае не реконнектит)
+        '''
+        if dc_settings:
+            name = dc_settings['address']
+            if not name in self.hub_tabs:
+                self.tab_add(type_='hub', name=name, dc_settings=dc_settings)
+                self.tab_connect(name)
+            self.tab_select('hub', name)
+        elif self.current_tab and self.current_tab['type_'] == 'hub':
+            self.tab_connect(self.current_tab['name'])
+
+    def disconnect(self):
+        if self.current_tab and self.current_tab['type_'] == 'hub':
+            self.tab_disconnect(self.current_tab['name'])
+
+    def quick_connect(self, event=None):
+        address = self.quick_address.get().strip().rstrip('/').split('//')[-1]
+        if address:
+            self.quick_address.delete(0, END)
+            self.quick_address.insert(0, address)
+            dc_settings = config.make_dc_settings(address)
+            self.connect(dc_settings)
+
+    def bookmark_connect(self, bm_number):
+        dc_settings = config.make_dc_settings_from_bm(bm_number)
+        self.connect(dc_settings)
+
+    def show_settings(self):
+        try:
+            self.settings_window.focus_set()
+        except Exception:   # workaround - AttribureError, _tkinter.TclError
+            self.settings_window = SettingsWindow(self.root)
+
+    def quit(self):
+        if askyesno("Quit confirmation", "Really quit?"):
+            for tab in self.hub_tabs:
+                self.tab_disconnect(tab)
+            self.root.quit()
+
+### tab ###
+
+    def tab_add(self, type_, name, dc_settings=None):
+        if type_ == 'hub':
+            self.tabbar.add_tab(name='hub|'+name, label=name, state=0)
+            tab = HubTab(self.tab_frame, dc_settings)
+            self.hub_tabs[name] = tab
+
+    def tab_close(self, type_, name):
+        if type_ == 'hub':
+            self.hub_tabs[name].close()
+            self.hub_tabs.pop(name)
+
+    def tab_select(self, type_, name):
+        if type_ == 'hub':
+            tb_tab_name = 'hub|' + name
+            self.tabbar.select_tab(tb_tab_name)
+
+    def tab_connect(self, name):
+        if name in self.hub_tabs:
+            self.hub_tabs[name].connect()
+
+    def tab_disconnect(self, name):
+        if name in self.hub_tabs:
+            self.hub_tabs[name].disconnect()
+
+    def tab_select_cb(self, tb_tab_name):
+        name_split = tb_tab_name.split('|')
+        if name_split[0] == 'hub':
+            if self.current_tab and self.current_tab['name'] in self.hub_tabs:
+                self.hub_tabs[self.current_tab['name']].hide()
+            self.hub_tabs[name_split[1]].show()
+            self.current_tab['type_'] = name_split[0]
+            self.current_tab['name'] = name_split[1]
+
+    def tab_close_cb(self, tb_tab_name):
+        name_split = tb_tab_name.split('|')
+        if name_split[0] == 'hub':
+            self.tab_close(type_=name_split[0], name=name_split[1])
+
+    '''
     def add_tab(self, type, label='', nick=None, state=0, select=False):
         if type == 'hub':
             tab_name = 'hub'
@@ -105,235 +401,7 @@ class Gui:
         else:
             self.tabs[tab_name]['chat'].place_forget()
             self.tabs[tab_name]['message_box'].place_forget()
-
-    def select_tab(self, tab_name):
-        if self.current_tab in self.tabs:
-            self.deplace_tab(self.current_tab)
-        self.place_tab(tab_name)
-        self.tabs[tab_name]['unread'] = 0
-        self.tab_hide_unread(tab_name)
-        self.current_tab = tab_name
-
-    def close_tab(self, tab_name):
-        self.deplace_tab(tab_name)
-        if tab_name == 'hub':
-            self.disconnect()
-            self.chat.clear()
-        else:
-            self.tabs[tab_name]['chat'].destroy()
-            self.tabs[tab_name]['message_box'].destroy()
-        self.tabs.pop(tab_name)
-
-    def mainloop(self):
-        self.root.mainloop()
-
-    def quit(self):
-        if askyesno("Quit confirmation", "Really quit?"):
-            self.disconnect()
-            self.root.quit()
-
-    def show_settings(self):
-        try:
-            self.settings_window.focus_set()
-        except Exception:   # workaround - AttribureError, _tkinter.TclError
-            self.settings_window = SettingsWindow(self.root)
-
-    def insert_nick(self, check_nick):
-        if self.dc and check_nick != self.dc.nick and self.dc.userlist and check_nick in self.dc.userlist:
-                if self.message_box.message_text.index(INSERT) == '1.0':   # если курсор стоит в начале поля ввода,
-                    check_nick = check_nick + config.settings['chat_addr_sep'] + ' '   # то вставляем ник как обращение
-                self.message_box.message_text.insert(INSERT, check_nick)
-                self.message_box.message_text.focus_set()
-                return True
-
-    def format_message(self, nick, text, me):
-        text = text.replace('\r', '')
-        nick_tag = 'user_nick'
-        if self.dc:
-            if nick == self.dc.nick:
-                nick_tag = 'own_nick'
-            else:
-                nick_role = self.check_user_role(nick)
-                if nick_role:
-                    nick_tag = nick_role + '_nick'
-        if not me:
-            msg = ['text', "<", nick_tag, nick, 'text', "> "]
-        else:
-            msg = ['text', "* ", nick_tag, nick, 'text', " "]
-        tags = ('text', 'link')
-        cur_tag = 0
-        text_splitted = re.split('((?:http|ftp)s?://[^\s]+)', text)
-        for part in text_splitted:
-            if part: msg.extend((tags[cur_tag], part))
-            cur_tag = 1 - cur_tag
-        return msg
-
-    def check_user_role(self, nick):
-        if self.dc and self.dc.userlist:
-            if nick in self.dc.userlist.bots:
-                return 'bot'
-            elif nick in self.dc.userlist.ops:
-                return 'op'
-            elif nick in self.dc.userlist:
-                return 'user'
-        return False
-
-    def connect(self):
-        if not self.connect_loop_running:
-            if self.dc and (self.dc.connected or self.dc.connecting):
-                self.disconnect()
-                self.root.after(200, self.connect)
-            elif self.dc_settings:
-                if not 'hub' in self.tabs:
-                    self.add_tab(type='hub', state=0, select=True)
-                self.set_tab_label('hub', self.dc_settings['address'])
-                self.do_connect = True
-                self.connect_loop_running = True
-                self.connect_loop()
-
-    def disconnect(self):
-        self.do_connect = False
-        self.pass_event.password = None   # сбросим пароль, введённый вручную
-        if self.dc and self.dc.connected:
-            self.dc.disconnect()
-
-    def quick_connect(self, event=None):
-        if not self.connect_loop_running:
-            address = self.quick_address.get().strip().rstrip('/').split('//')[-1]
-            if address:
-                self.quick_address.delete(0, END)
-                self.quick_address.insert(0, address)
-                self.dc_settings = config.make_dc_settings(address)
-                self.connect()
-
-    def bookmark_connect(self, bm_number):
-        if not self.connect_loop_running:
-            self.dc_settings = config.make_dc_settings_from_bm(bm_number)
-            self.connect()
-
-    def chat_send(self, message):
-        if self.dc and self.dc.connected:
-            self.dc.chat_send(message)
-            return True
-        else:
-            return False
-
-    def pm_send(self, recipient, message):
-        if self.dc and self.dc.connected and recipient in self.dc.userlist:
-            self.dc.pm_send(recipient, message)
-            return True
-        else:
-            return False
-
-    def check_loop(self):
-        if not (self.dc.connecting or self.dc.connected):
-            self.connected = False
-            self.userlist.clear()
-            self.statusbar.clear()
-            for tab in self.tabs:
-                self.set_tab_state(tab, state=0)
-            if self.do_connect and config.settings['reconnect'] and config.settings['reconnect_delay'] > 0:
-                self.connect_loop_running = True
-                self.root.after(config.settings['reconnect_delay']*1000, self.connect_loop)
-        else:
-            if not self.connected and self.dc.connected:
-                self.connected = True
-                self.set_tab_state('hub', state=1)
-            if not self.pass_event.is_set():   # если сброшен, значит, DC-тред ждёт пароль
-                pass_window = PassWindow(self.root)
-                pass_window.wait_window()
-                self.pass_event.password = pass_window.password.get()   # передамим в DC-тред через атрибут эвента
-                self.pass_event.set()   # устанавливаем обратно в True (информируем DC-тред, что пароль получен)
-            self.root.after(100, self.check_loop)
-
-    def connect_loop(self):
-        if self.chat_loop_running or self.userlist_loop_running:
-            self.root.after(100, self.connect_loop)
-        else:
-            if self.do_connect:
-                self.dc = slangdc.DCClient(**self.dc_settings)
-                DCThread(self.dc, self.pass_event).start()
-                self.chat_loop_running = True
-                self.chat_userlist_running = True
-                self.root.after(100, self.chat_loop)
-                self.root.after(100, self.userlist_loop)
-                self.root.after(100, self.check_loop)
-            self.root.after(2000, self.reset_connect_loop_flag)   # 2 секунды игнорируем повторные попытки подключиться
-
-    def reset_connect_loop_flag(self):   # lambda - это вам не function() {...}
-        self.connect_loop_running = False   # поэтому тривиальное действие приходится выносить в отдельную функцию
-
-    def chat_loop(self):
-        message = self.dc.message_queue.mget()
-        if message:
-            if message['type'] == slangdc.MSGEND:
-                self.chat_loop_running = False
-                return
-            else:
-                chat = self.chat
-                if message['type'] == slangdc.MSGCHAT:
-                    msg = self.format_message(message['nick'], message['text'], message['me'])
-                    if self.current_tab != 'hub':
-                        self.tabs['hub']['unread'] += 1
-                        self.tab_show_unread('hub')
-                elif message['type'] == slangdc.MSGPM:
-                    if 'sender' in message:   # входящее сообщение
-                        nick = message['nick'] if message['nick'] else message['sender']
-                        tab_name = 'pm|' + message['sender']
-                        if not tab_name in self.tabs:
-                            self.add_tab(type='pm', nick=message['sender'], label=message['sender'], state=1)
-                        if self.current_tab != tab_name:
-                            self.tabs[tab_name]['unread'] += 1
-                            self.tab_show_unread(tab_name)
-                        chat = self.tabs[tab_name]['chat']
-                    else:   # исходящее сообщение
-                        nick = self.dc.nick
-                        chat = self.tabs['pm|'+message['recipient']]['chat']
-                    msg = self.format_message(nick, message['text'], message['me'])
-                elif message['type'] == slangdc.MSGERR:
-                    msg = ('error', "*** " + message['text'])
-                elif message['type'] == slangdc.MSGINFO:
-                    msg = ('info', "*** " + message['text'])
-                    if message['text'].startswith('HubName: '):
-                        self.statusbar.set('hubname', self.dc.hubname)
-                    elif message['text'].startswith('HubTopic: '):
-                        self.statusbar.set('hubtopic', self.dc.hubtopic)
-                elif message['type'] == slangdc.MSGNICK:
-                    if config.settings['show_joins'] and isinstance(message['nick'], str):
-                        msg = ('info', "*** {0}s: {1}".format(message['state'], message['nick']))
-                    else:
-                        msg = None
-                    if isinstance(message['nick'], str):
-                        nicks = (message['nick'],)
-                    else:
-                        nicks = message['nick']
-                    for nick in nicks:
-                        if 'pm|'+nick in self.tabs:
-                            state = 1 if message['state'] == 'join' else 0
-                            self.set_tab_state('pm|'+nick, state=state)
-                if msg:
-                    timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
-                    chat.add_message('timestamp', timestamp, 'text', " ", *msg)
-        self.root.after(10, self.chat_loop)
-
-    def userlist_loop(self):
-        if self.dc.connecting or self.dc.connected:
-            if self.dc.userlist:
-                ### копировать надо бы с локом
-                bots = self.dc.userlist.bots.copy()
-                ops = self.dc.userlist.ops - bots
-                users = (self.dc.userlist - ops - bots)
-                count_all = sum(map(len, (bots, ops, users)))   # не len(self.dc.userlist), т.к. он может измениться в процессе
-                self.userlist.update_list(ops, bots, users)
-                count_filter = self.userlist.len()
-                if count_filter != count_all:
-                    count = "{0:d}/{1:d}".format(count_filter, count_all)
-                else:
-                    count = str(count_all)
-                self.statusbar.set('usercount', count)
-            self.root.after(1000, self.userlist_loop)
-        else:
-            self.userlist_loop_running = False
+    '''
 
 
 class AppMenu(Menu):
@@ -412,8 +480,8 @@ class TabBar(Frame):
         self.draw_tabs()
         if self.selected == name:   # если закрываем выбранную вкладку, выберем первую
             if self.tabs:
+                self.select_tab(self.tabs[0]['name'])
                 self.selected = self.tabs[0]['name']
-                self.select_tab(self.selected)
             else:
                 self.selected = None
 
@@ -427,9 +495,10 @@ class TabBar(Frame):
                 relx += width
 
     def select_tab(self, name):
+        if self.selected == name: return
         index = self.tab_index(name)
         if index == -1: return False
-        if self.selected:
+        if self.selected and self.selected in self.tabs:
             self.tabs[self.tab_index(self.selected)]['label'].config(font=self.font_unsel)
         self.selected = name
         self.tabs[index]['label'].config(font=self.font_sel)
@@ -454,9 +523,9 @@ class Chat(Frame):
 
     max_lines = 500
 
-    def __init__(self, parent, nick_callback=None):
+    def __init__(self, parent, side, expand, fill, nick_callback=None):
         Frame.__init__(self, parent)
-        #self.pack(side=side, expand=expand, fill=fill)
+        self.pack(side=side, expand=expand, fill=fill)
         font_family = 'Helvetica'
         font_size = 12
         font_normal = (font_family, font_size, 'normal')
@@ -597,9 +666,9 @@ class Chat(Frame):
 
 class UserList(Frame):
 
-    def __init__(self, parent, doubleclick_callback=None):
+    def __init__(self, parent, side, expand, fill, doubleclick_callback=None):
         Frame.__init__(self, parent)
-        #self.pack(side=side, expand=expand, fill=fill)
+        self.pack(side=side, expand=expand, fill=fill)
         ul_frame = Frame(self)
         ul_frame.pack(side=TOP, expand=YES, fill=BOTH)
         font = ('Helvetica', 10, 'normal')
@@ -698,9 +767,9 @@ class UserList(Frame):
 
 class MessageBox(Frame):
 
-    def __init__(self, parent, submit_callback=None):
+    def __init__(self, parent, side, expand, fill, submit_callback=None):
         Frame.__init__(self, parent)
-        #self.pack(side=side, expand=expand, fill=fill)
+        self.pack(side=side, expand=expand, fill=fill)
         Button(self, text="Send", command=self.submit).pack(side=RIGHT, fill=Y)
         message_text = Text(self, height=2, font = 'Helvetica', undo=1)
         message_text.pack(side=LEFT, expand=YES, fill=X)
