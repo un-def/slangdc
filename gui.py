@@ -51,8 +51,9 @@ class Gui:
         self.tab_frame = Frame(main_frame)
         self.tab_frame.pack(side=TOP, expand=YES, fill=BOTH)
         #
-        self.hub_tabs = {}
-        self.current_tab = {}   # {type_: 'hub', name: 'allavtovo.ru'}
+        self.tabs = {}      # имя_таба: инстанс_таба
+                            # имя_таба = адрес_хаба или (адрес_хаба, ник)
+        self.current_tab = None   # имя_активного таба (см. выше)
 
 ### gui ###
 
@@ -66,16 +67,16 @@ class Gui:
         '''
         if dc_settings:
             name = dc_settings['address']
-            if not name in self.hub_tabs:
+            if not name in self.tabs:
                 self.tab_add(type_='hub', name=name, dc_settings=dc_settings)
                 self.tab_connect(name)
             self.tab_select('hub', name)
-        elif self.current_tab and self.current_tab['type_'] == 'hub':
-            self.tab_connect(self.current_tab['name'])
+        elif self.current_tab:
+            self.tab_connect(self.current_tab)
 
     def disconnect(self):
-        if self.current_tab and self.current_tab['type_'] == 'hub':
-            self.tab_disconnect(self.current_tab['name'])
+        if self.current_tab:
+            self.tab_disconnect(self.current_tab)
 
     def quick_connect(self, event=None):
         address = self.quick_address.get().strip().rstrip('/').split('//')[-1]
@@ -93,74 +94,110 @@ class Gui:
         try:
             self.settings_window.focus_set()
         except Exception:   # workaround - AttribureError, _tkinter.TclError
-            self.settings_window = SettingsWindow(self.root)
+            self.settings_window = SettingsWindow()
 
     def quit(self):
         if askyesno("Quit confirmation", "Really quit?"):
-            for tab in self.hub_tabs:
+            for tab in self.tabs:
                 self.tab_disconnect(tab)
             self.root.quit()
 
 ### tab ###
 
-    def tab_add(self, type_, name, dc_settings=None):
+    def tab_add(self, type_, name, state=0, dc_settings=None, pm_send_callback=None):
+        # select=True - переключиться на новую вкладку
         if type_ == 'hub':
-            self.tabbar.add_tab(name='hub|'+name, label=name, state=0)
-            tab_update_callback = lambda n=name: self.tab_update('hub', n)
-            tab = HubTab(self.tab_frame, dc_settings, tab_update_callback)
-            self.hub_tabs[name] = tab
-
-    def tab_close(self, type_, name):
-        if type_ == 'hub':
-            self.hub_tabs[name].close()
-            self.hub_tabs.pop(name)
+            tab = HubTab(   name=name,
+                            parent_widget=self.tab_frame,
+                            dc_settings=dc_settings,
+                            tab_update_callback=self.tab_update,
+                            tab_add_callback=self.tab_add,
+                            tab_select_callback=self.tab_select)
+        elif type_ == 'pm':
+            tab = PMTab(name=name,
+                        state=state,
+                        parent_widget=self.tab_frame,
+                        tab_update_callback=self.tab_update,
+                        pm_send_callback=pm_send_callback)
+        self.tabbar.add_tab(name=self.make_tb_tab_name(type_, name))
+        self.tabs[name] = tab
+        self.tab_update(type_, name)
+        return tab
 
     def tab_select(self, type_, name):
-        if type_ == 'hub':
-            tb_tab_name = 'hub|' + name
-            self.tabbar.select_tab(tb_tab_name)
+        # через коллбэк таббара вызывает tab_select_cb
+        self.tabbar.select_tab(self.make_tb_tab_name(type_, name))
 
     def tab_update(self, type_, name):
         if type_ == 'hub':
-            label = name if self.hub_tabs[name].unread == 0 else "({}) {}".format(self.hub_tabs[name].unread, name)
-            state = self.hub_tabs[name].connected
-            tb_tab_name = 'hub|' + name
-            self.tabbar.update_tab(tb_tab_name, label, state)
+            label = name
+        elif type_ == 'pm':
+            label = "PM: " + name[1]
+        state = self.tabs[name].state
+        label = label if self.tabs[name].unread == 0 else "({}) {}".format(self.tabs[name].unread, label)
+        self.tabbar.update_tab(self.make_tb_tab_name(type_, name), label, state)
 
     def tab_connect(self, name):
-        if name in self.hub_tabs:
-            self.hub_tabs[name].connect()
+        try:
+            self.tabs[name].connect()
+        except AttributeError:
+            pass
 
     def tab_disconnect(self, name):
-        if name in self.hub_tabs:
-            self.hub_tabs[name].disconnect()
+        try:
+            self.tabs[name].disconnect()
+        except AttributeError:
+            pass
+
+    def make_tb_tab_name(self, type_, name):
+        if type_ == 'hub':
+            tb_tab_name = 'hub|' + name
+        elif type_ == 'pm':
+            tb_tab_name = '|'.join(('pm', name[0], name[1]))
+        return tb_tab_name
+
+    def split_tb_tab_name(self, tb_tab_name):
+        name_split = tb_tab_name.split('|')
+        type_ = name_split[0]
+        if type_ == 'hub':
+            name = name_split[1]
+        elif type_ == 'pm':
+            name = (name_split[1], name_split[2])
+        return (type_, name)
 
     def tab_select_cb(self, tb_tab_name):
-        name_split = tb_tab_name.split('|')
-        if name_split[0] == 'hub':
-            if self.current_tab and self.current_tab['name'] in self.hub_tabs:
-                self.hub_tabs[self.current_tab['name']].hide()
-            self.hub_tabs[name_split[1]].show()
-            self.current_tab['type_'] = name_split[0]
-            self.current_tab['name'] = name_split[1]
+        type_, name = self.split_tb_tab_name(tb_tab_name)
+        if self.current_tab in self.tabs:
+            self.tabs[self.current_tab].hide()
+        self.tabs[name].show()
+        self.current_tab = name
 
     def tab_close_cb(self, tb_tab_name):
-        name_split = tb_tab_name.split('|')
-        if name_split[0] == 'hub':
-            self.tab_close(type_=name_split[0], name=name_split[1])
+        ''' если это PM таб и родительский таб ещё не закрыт, то делегируем
+            закрытие родительскому табу (он должен удалить PM таб из своего
+            pm_tabs; иначе закрываем напрямую
+        '''
+        type_, name = self.split_tb_tab_name(tb_tab_name)
+        if type_ == 'pm' and name[0] in self.tabs:
+            self.tabs[name[0]].close_pm_tab(name[1])
+        else:
+            self.tabs[name].close()
+        self.tabs.pop(name)
 
 
 class Tab:
 
-    def __init__(self, parent):
+    def __init__(self, name, parent_widget):
+        self.name = name
+        self.parent_widget = parent_widget
         self.visible = False
         self.unread = 0
-        self.frame = Frame(parent)
+        self.frame = Frame(parent_widget)
 
     def show(self):
         self.visible = True
         self.unread = 0
-        self.tab_update_callback()
+        self.update()
         self.frame.pack(expand=YES, fill=BOTH)
 
     def hide(self):
@@ -170,22 +207,25 @@ class Tab:
 
 class HubTab(Tab):
 
-    def __init__(self, parent, dc_settings, tab_update_callback):
-        super().__init__(parent)
+    def __init__(self, name, parent_widget, dc_settings, tab_update_callback, tab_add_callback, tab_select_callback):
+        super().__init__(name, parent_widget)
         self.dc = None
         self.dc_settings = dc_settings
         self.tab_update_callback = tab_update_callback
+        self.tab_add_callback = tab_add_callback
+        self.tab_select_callback = tab_select_callback
         self.chat_loop_running = False
         self.userlist_loop_running = False
         self.connect_loop_running = False
         self.do_connect = False
-        self.connected = False
+        self.state = 0
         self.pass_event = PassEvent()   # эвент для коммуникации между тредами (получения пароля)
-        self.message_box = MessageBox(self.frame, side=BOTTOM, expand=NO, fill=X, submit_callback=self.send)
+        self.message_box = MessageBox(self.frame, side=BOTTOM, expand=NO, fill=X, submit_callback=self.chat_send)
         chat_ul_frame = Frame(self.frame)
         chat_ul_frame.pack(side=TOP, expand=YES, fill=BOTH)
-        self.userlist = UserList(chat_ul_frame, side=RIGHT, expand=NO, fill=Y, doubleclick_callback=self.insert_nick)
-        self.chat = Chat(chat_ul_frame, side=LEFT, expand=YES, fill=BOTH, nick_callback=self.insert_nick)
+        self.userlist = UserList(chat_ul_frame, side=RIGHT, expand=NO, fill=Y, nick_callback=self.nick_action)
+        self.chat = Chat(chat_ul_frame, side=LEFT, expand=YES, fill=BOTH, nick_callback=self.nick_action)
+        self.pm_tabs = {}
 
     def close(self):
         self.disconnect()
@@ -207,16 +247,44 @@ class HubTab(Tab):
         self.pass_event.password = None   # сбросим пароль, введённый вручную
         if self.dc and self.dc.connected:
             self.dc.disconnect()
+            self.update_pm_tabs(state=0)
 
-#####
+    def update(self):
+        self.tab_update_callback(type_='hub', name=self.name)
 
-    def insert_nick(self, check_nick):
-        if self.dc and check_nick != self.dc.nick and self.dc.userlist and check_nick in self.dc.userlist:
+    def add_pm_tab(self, name, state):
+        pm_send_callback = lambda m, r=name: self.pm_send(r, m)
+        new_tab = self.tab_add_callback(type_='pm',
+                                        name=(self.name, name),
+                                        state=state,
+                                        pm_send_callback=pm_send_callback
+                                        )
+        self.pm_tabs[name] = new_tab
+
+    def close_pm_tab(self, name):
+        self.pm_tabs[name].close()
+        self.pm_tabs.pop(name)
+
+    def update_pm_tabs(self, state=0):
+        for tab in self.pm_tabs.values():
+            tab.state = 0
+            tab.update()
+
+    def select_pm_tab(self, name):
+        self.tab_select_callback(type_='pm', name=(self.name, name))
+
+    def nick_action(self, nick, action):
+        if self.dc and nick != self.dc.nick and self.dc.userlist and nick in self.dc.userlist:
+            if action == 'insert':   # вставить ник в чат
                 if self.message_box.message_text.index(INSERT) == '1.0':   # если курсор стоит в начале поля ввода,
-                    check_nick = check_nick + config.settings['chat_addr_sep'] + ' '   # то вставляем ник как обращение
-                self.message_box.message_text.insert(INSERT, check_nick)
+                    nick = nick + config.settings['chat_addr_sep'] + ' '   # то вставляем ник как обращение
+                self.message_box.message_text.insert(INSERT, nick)
                 self.message_box.message_text.focus_set()
-                return True
+            elif action == 'pm':
+                if not nick in self.pm_tabs:
+                    self.add_pm_tab(nick, state=1)
+                self.select_pm_tab(nick)
+            return True
 
     def format_message(self, nick, text, me):
         text = text.replace('\r', '')
@@ -250,28 +318,36 @@ class HubTab(Tab):
                 return 'user'
         return False
 
-    def send(self, message):
+    def chat_send(self, message):
         if self.dc and self.dc.connected:
             self.dc.chat_send(message)
             return True
         else:
             return False
 
+    def pm_send(self, recipient, message):
+        if self.dc and self.dc.connected and recipient in self.dc.userlist:
+            self.dc.pm_send(recipient, message)
+            return True
+        else:
+            return False
+
     def check_loop(self):
         if not (self.dc.connecting or self.dc.connected):
-            self.connected = False
-            self.tab_update_callback()
+            self.state = 0
+            self.update()
+            self.update_pm_tabs(state=0)
             self.userlist.clear()
             #@self.statusbar.clear()
             if self.do_connect and config.settings['reconnect'] and config.settings['reconnect_delay'] > 0:
                 self.connect_loop_running = True
                 self.frame.after(config.settings['reconnect_delay']*1000, self.connect_loop)
         else:
-            if not self.connected and self.dc.connected:
-                self.connected = True
-                self.tab_update_callback()
+            if not self.state and self.dc.connected:
+                self.state = 1
+                self.update()
             if not self.pass_event.is_set():   # если сброшен, значит, DC-тред ждёт пароль
-                pass_window = PassWindow(self.root)
+                pass_window = PassWindow()
                 pass_window.wait_window()
                 self.pass_event.password = pass_window.password.get()   # передамим в DC-тред через атрибут эвента
                 self.pass_event.set()   # устанавливаем обратно в True (информируем DC-тред, что пароль получен)
@@ -301,22 +377,18 @@ class HubTab(Tab):
                 self.chat_loop_running = False
                 return
             else:
-                chat = self.chat
+                tab = self   # или дочерняя PM вкладка
                 if message['type'] == slangdc.MSGCHAT:
                     msg = self.format_message(message['nick'], message['text'], message['me'])
                 elif message['type'] == slangdc.MSGPM:
                     if 'sender' in message:   # входящее сообщение
+                        if not message['sender'] in self.pm_tabs:
+                            self.add_pm_tab(message['sender'], state=1)
                         nick = message['nick'] if message['nick'] else message['sender']
-                        #@tab_name = 'pm|' + message['sender']
-                        #@if not tab_name in self.tabs:
-                        #@    self.add_tab(type='pm', nick=message['sender'], label=message['sender'], state=1)
-                        #@if self.current_tab != tab_name:
-                        #@    self.tabs[tab_name]['unread'] += 1
-                        #@    self.tab_show_unread(tab_name)
-                        #@chat = self.tabs[tab_name]['chat']
+                        tab = self.pm_tabs[message['sender']]
                     else:   # исходящее сообщение
                         nick = self.dc.nick
-                        #@chat = self.tabs['pm|'+message['recipient']]['chat']
+                        tab = self.pm_tabs[message['recipient']]
                     msg = self.format_message(nick, message['text'], message['me'])
                 elif message['type'] == slangdc.MSGERR:
                     msg = ('error', "*** " + message['text'])
@@ -333,20 +405,20 @@ class HubTab(Tab):
                         msg = ('info', "*** {0}s: {1}".format(message['state'], message['nick']))
                     else:
                         msg = None
-                    #@if isinstance(message['nick'], str):
-                    #@    nicks = (message['nick'],)
-                    #@else:
-                    #@    nicks = message['nick']
-                    #@for nick in nicks:
-                    #@    if 'pm|'+nick in self.tabs:
-                    #@        state = 1 if message['state'] == 'join' else 0
-                    #@        self.set_tab_state('pm|'+nick, state=state)
+                    if isinstance(message['nick'], str):
+                        nicks = (message['nick'],)
+                    else:
+                        nicks = message['nick']
+                    for nick in nicks:
+                        if nick in self.pm_tabs:
+                            self.pm_tabs[nick].state = 1 if message['state'] == 'join' else 0
+                            self.pm_tabs[nick].update()
                 if msg:
                     timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
-                    chat.add_message('timestamp', timestamp, 'text', " ", *msg)
-                    if not self.visible:
-                        self.unread += 1
-                        self.tab_update_callback()
+                    tab.chat.add_message('timestamp', timestamp, 'text', " ", *msg)
+                    if not tab.visible:
+                        tab.unread += 1
+                        tab.update()
         self.frame.after(10, self.chat_loop)
 
     def userlist_loop(self):
@@ -371,21 +443,20 @@ class HubTab(Tab):
 
 class PMTab(Tab):
 
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.message_box = MessageBox(self.frame, side=BOTTOM, expand=NO, fill=X, submit_callback=self.send)
-        self.chat = Chat(self.frame, side=TOP, expand=YES, fill=BOTH, nick_callback=self.insert_nick)
+    def __init__(self, name, state, parent_widget, tab_update_callback, pm_send_callback):
+        super().__init__(name, parent_widget)
+        self.tab_update_callback = tab_update_callback
+        self.message_box = MessageBox(self.frame, side=BOTTOM, expand=NO, fill=X, submit_callback=pm_send_callback)
+        self.chat = Chat(self.frame, side=TOP, expand=YES, fill=BOTH, nick_callback=None)
+        Label(self.frame, text='PM: {} @ {}'.format(name[1], name[0]), anchor=W).pack(side=TOP, expand=NO, fill=X)
+        self.state = state
 
-    def insert_nick(self, check_nick):
-        ...
+    def close(self):
+        self.hide()
+        recursive_destroy(self.frame)
 
-    def send(self, recipient, message):
-        return False
-        if self.dc and self.dc.connected and recipient in self.dc.userlist:
-            self.dc.pm_send(recipient, message)
-            return True
-        else:
-            return False
+    def update(self):
+        self.tab_update_callback(type_='pm', name=self.name)
 
 
 class AppMenu(Menu):
@@ -423,6 +494,7 @@ class TabBar(Frame):
         self.pack(side=side, expand=NO, fill=X)
         self.tabs = []
         self.selected = None   # name выбранной вкладки
+        self.prev = None   # name предыдущей выбранной вкладки
 
     def calculate_width(self):
         if len(self.tabs) > 0:
@@ -437,7 +509,7 @@ class TabBar(Frame):
             if tab['name'] == name: return index
         return -1
 
-    def add_tab(self, name, label, state=0):
+    def add_tab(self, name, label='', state=0):
         tab = {'name': name}
         bg = self.color_on if state else self.color_off
         button = Frame(self, bg=bg, bd=1, relief=RAISED, padx=3)
@@ -461,12 +533,14 @@ class TabBar(Frame):
         tab['button'].destroy()
         self.close_callback(name)
         self.draw_tabs()
-        if self.selected == name:   # если закрываем выбранную вкладку, выберем первую
+        print(self.prev)
+        if name == self.selected:   # если закрываем выбранную вкладку, выберем предыдущую или первую
+            self.selected = None
             if self.tabs:
-                self.select_tab(self.tabs[0]['name'])
-                self.selected = self.tabs[0]['name']
+                if self.tab_index(self.prev) == -1: self.prev = self.tabs[0]['name']
+                self.select_tab(self.prev)
             else:
-                self.selected = None
+                self.prev = None
 
     def draw_tabs(self):
         width = self.calculate_width()
@@ -485,6 +559,9 @@ class TabBar(Frame):
             sel_index = self.tab_index(self.selected)
             if not sel_index == -1:
                 self.tabs[sel_index]['label'].config(font=self.font_unsel)
+                self.prev = self.selected
+            else:
+                self.prev = None
         self.selected = name
         self.tabs[index]['label'].config(font=self.font_sel)
         self.draw_tabs()
@@ -514,7 +591,8 @@ class Chat(Frame):
         font_normal = (font_family, font_size, 'normal')
         font_bold = (font_family, font_size, 'bold')
         font_underline = (font_family, font_size, 'normal underline')
-        tools_frame = Frame(self, pady=5)
+        tools_frame = Frame(self, height=36)
+        tools_frame.pack_propagate(0)
         tools_frame.pack(side=BOTTOM, expand=NO, fill=BOTH)
         Button(tools_frame, text='Clear chat', command=self.clear).pack(side=LEFT)
         self.autoscroll = BooleanVar()
@@ -538,20 +616,25 @@ class Chat(Frame):
             ('info', font_normal, 'blue')
         )
         tags_bindings = (
-            ('text', ('<Button-3>', self.extract_nick)),
+            ('text',    ('<Double-1>', self.extract_nick, 'insert'),
+                        ('<Double-3>', self.extract_nick, 'pm')),
             ('link',    ('<Button-1>', self.link_click),
                         ('<Enter>', self.link_enter),
-                        ('<Leave>', self.link_leave)
-            ),
-            ('user_nick', ('<Button-3>', self.nick_click)),
-            ('op_nick', ('<Button-3>', self.nick_click)),
-            ('bot_nick', ('<Button-3>', self.nick_click)),
+                        ('<Leave>', self.link_leave)),
+            ('user_nick',   ('<Double-1>', self.nick_click, 'insert'),
+                            ('<Double-3>', self.nick_click, 'pm')),
+            ('op_nick',     ('<Double-1>', self.nick_click, 'insert'),
+                            ('<Double-3>', self.nick_click, 'pm')),
+            ('bot_nick',    ('<Double-1>', self.nick_click, 'insert'),
+                            ('<Double-3>', self.nick_click, 'pm')),
         )
         for tag, font, color in tags_styles:
             chat.tag_config(tag, font=font, foreground=color)
         for tag, *bindings in tags_bindings:
-            for bind in bindings:
-                chat.tag_bind(tag, bind[0], lambda e, c=bind[1], t=tag: c(t, e))
+            for event, callback, *args in bindings:
+                args.insert(0, tag)
+                cb = lambda e, c=callback, a=args: c(e, *a)
+                chat.tag_bind(tag, event, cb)
         chat.bind('<Control-c>', self.text_copy)
         chat.bind('<Control-C>', self.text_copy)
         chat.bind('<Key>', self.nav_keys)
@@ -560,24 +643,24 @@ class Chat(Frame):
         self.nick_callback = nick_callback
         self.lock = threading.Lock()
 
-    def _get_tag_range(self, tag, event):
+    def _get_tag_range(self, event, tag):
         index = self.chat.index('@{},{}'.format(event.x, event.y))
         tag_range = self.chat.tag_prevrange(tag, index)
         if not tag_range or self.chat.compare(tag_range[1], '<', index):
             tag_range = self.chat.tag_nextrange(tag, index)
         return (index, tag_range)
 
-    def _get_tag_text(self, tag, event):
-        _, tag_range = self._get_tag_range(tag, event)
+    def _get_tag_text(self, event, tag):
+        _, tag_range = self._get_tag_range(event, tag)
         return self.chat.get(*tag_range)
 
     def _split_index(self, index):
         return tuple(map(int, index.split('.')))
 
-    def extract_nick(self, tag, event):
+    def extract_nick(self, event, tag, action):
         if self.nick_callback:
             # пытается извлечь из текста под курсором ник
-            index, tag_range = self._get_tag_range(tag, event)
+            index, tag_range = self._get_tag_range(event, tag)
             tag_text = self.chat.get(*tag_range)
             begin_line, begin_col = self._split_index(tag_range[0])
             index_line, index_col = self._split_index(index)
@@ -595,21 +678,21 @@ class Chat(Frame):
                     # '.' не отсекаем, т.к. ник может заканчиваться на неё (может и на ',', но гораздо реже)
                     if nick[-1] in ':,': nick = nick[:-1]
                     if len(nick) > 2:   # вряд ли распространены ники короче 3 символов
-                        self.nick_callback(nick)
+                        self.nick_callback(nick, action)
 
-    def nick_click(self, tag, event):
+    def nick_click(self, event, tag, action):
         if self.nick_callback:
-            nick = self._get_tag_text(tag, event)
-            self.nick_callback(nick)
+            nick = self._get_tag_text(event, tag)
+            self.nick_callback(nick, action)
 
-    def link_click(self, tag, event):
-        link = self._get_tag_text(tag, event)
+    def link_click(self, event, tag):
+        link = self._get_tag_text(event, tag)
         webbrowser.open(link)
 
-    def link_enter(self, tag, event):
+    def link_enter(self, event, tag):
         self.chat.config(cursor='hand2')
 
-    def link_leave(self, tag, event):
+    def link_leave(self, event, tag):
         self.chat.config(cursor='xterm')
 
     def add_message(self, *msg_list):
@@ -649,7 +732,7 @@ class Chat(Frame):
 
 class UserList(Frame):
 
-    def __init__(self, parent, side, expand, fill, doubleclick_callback=None):
+    def __init__(self, parent, side, expand, fill, nick_callback=None):
         Frame.__init__(self, parent)
         self.pack(side=side, expand=expand, fill=fill)
         ul_frame = Frame(self)
@@ -661,19 +744,21 @@ class UserList(Frame):
         scroll.config(command=userlist.yview)
         userlist.pack(side=LEFT, expand=YES, fill=BOTH)
         scroll.pack(side=LEFT, fill=Y)
-        userlist.bind('<Double-1>', self.doubleclick)
+        userlist.bind('<Double-1>', lambda e: self.nick_action(e, 'insert'))
+        userlist.bind('<Double-3>', lambda e: self.nick_action(e, 'pm'))
         self.userlist = userlist
-        filter_frame = Frame(self)
-        filter_frame.pack(side=BOTTOM, expand=NO, fill=BOTH, pady=5)
+        filter_frame = Frame(self, height=36)
+        filter_frame.pack_propagate(0)
+        filter_frame.pack(side=BOTTOM, expand=NO, fill=BOTH)
         self.filter_var = StringVar()
         filter_entry = Entry(filter_frame, textvariable=self.filter_var)
-        filter_entry.pack(expand=YES, fill=BOTH)
+        filter_entry.pack(expand=YES, fill=X)
         self.colors = {
             'user': 'black',
             'op': 'red',
             'bot': 'magenta'
         }
-        self.doubleclick_callback = doubleclick_callback
+        self.nick_callback = nick_callback
         self.clear()
 
     def len(self):
@@ -742,10 +827,12 @@ class UserList(Frame):
         else:
             return self.op_len + self.bot_len
 
-    def doubleclick(self, event=None):
-        if self.doubleclick_callback:
-            nick = self.userlist.get(ACTIVE)[1:]
-            self.doubleclick_callback(nick)
+    def nick_action(self, event, action):
+        if self.nick_callback:
+            index = self.userlist.index('@{},{}'.format(event.x, event.y))
+            self.userlist.activate(index)
+            nick = self.userlist.get(index)[1:]
+            self.nick_callback(nick, action)
 
 
 class MessageBox(Frame):
@@ -805,8 +892,8 @@ class StatusBar(Frame):
 
 class SettingsWindow(Toplevel):
 
-    def __init__(self, root=None):
-        Toplevel.__init__(self, root)
+    def __init__(self):
+        super().__init__()
         self.title("settings")
         self.resizable(width=FALSE, height=FALSE)
         self.protocol('WM_DELETE_WINDOW', self.close)
@@ -859,8 +946,8 @@ class SettingsWindow(Toplevel):
 
 class PassWindow(Toplevel):
 
-    def __init__(self, root=None):
-        Toplevel.__init__(self, root)
+    def __init__(self):
+        super().__init__()
         self.title("Password")
         self.resizable(width=FALSE, height=FALSE)
         self.protocol('WM_DELETE_WINDOW', self.close)
