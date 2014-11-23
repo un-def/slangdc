@@ -54,11 +54,25 @@ class Gui:
         self.tabs = {}      # имя_таба: инстанс_таба
                             # имя_таба = адрес_хаба или (адрес_хаба, ник)
         self.current_tab = None   # имя_активного таба (см. выше)
+        self.root.after(1000, self.statusbar_update)
 
 ### gui ###
 
     def mainloop(self):
         self.root.mainloop()
+
+    def statusbar_update(self):
+        if self.current_tab:
+            try:
+                if isinstance(self.current_tab, tuple):
+                    statusbar = self.tabs[self.current_tab[0]].statusbar
+                else:
+                    statusbar = self.tabs[self.current_tab].statusbar
+                for var, value in statusbar.items():
+                    self.statusbar.set(var, value)
+            except KeyError:
+                self.statusbar.clear()
+        self.root.after(1000, self.statusbar_update)
 
     def connect(self, dc_settings=None):
         ''' без аргументов - (пере)подключается в выбранной вкладке (всегда);
@@ -219,6 +233,7 @@ class HubTab(Tab):
         self.connect_loop_running = False
         self.do_connect = False
         self.state = 0
+        self.statusbar_clear()
         self.pass_event = PassEvent()   # эвент для коммуникации между тредами (получения пароля)
         self.message_box = MessageBox(self.frame, side=BOTTOM, expand=NO, fill=X, submit_callback=self.chat_send)
         chat_ul_frame = Frame(self.frame)
@@ -272,6 +287,13 @@ class HubTab(Tab):
 
     def select_pm_tab(self, name):
         self.tab_select_callback(type_='pm', name=(self.name, name))
+
+    def statusbar_clear(self):
+        self.statusbar = {
+            'hubname': '',
+            'hubtopic': '',
+            'usercount': ''
+        }
 
     def nick_action(self, nick, action):
         if self.dc and nick != self.dc.nick and self.dc.userlist and nick in self.dc.userlist:
@@ -338,7 +360,7 @@ class HubTab(Tab):
             self.update()
             self.update_pm_tabs(state=0)
             self.userlist.clear()
-            #@self.statusbar.clear()
+            self.statusbar_clear()
             if self.do_connect and config.settings['reconnect'] and config.settings['reconnect_delay'] > 0:
                 self.connect_loop_running = True
                 self.frame.after(config.settings['reconnect_delay']*1000, self.connect_loop)
@@ -395,11 +417,9 @@ class HubTab(Tab):
                 elif message['type'] == slangdc.MSGINFO:
                     msg = ('info', "*** " + message['text'])
                     if message['text'].startswith('HubName: '):
-                        #@self.statusbar.set('hubname', self.dc.hubname)
-                        ...
+                        self.statusbar['hubname'] = self.dc.hubname
                     elif message['text'].startswith('HubTopic: '):
-                        #@self.statusbar.set('hubtopic', self.dc.hubtopic)
-                        ...
+                        self.statusbar['hubtopic'] = self.dc.hubtopic
                 elif message['type'] == slangdc.MSGNICK:
                     if config.settings['show_joins'] and isinstance(message['nick'], str):
                         msg = ('info', "*** {0}s: {1}".format(message['state'], message['nick']))
@@ -435,7 +455,7 @@ class HubTab(Tab):
                     count = "{0:d}/{1:d}".format(count_filter, count_all)
                 else:
                     count = str(count_all)
-                #@self.statusbar.set('usercount', count)
+                self.statusbar['usercount'] = count
             self.frame.after(1000, self.userlist_loop)
         else:
             self.userlist_loop_running = False
@@ -533,7 +553,6 @@ class TabBar(Frame):
         tab['button'].destroy()
         self.close_callback(name)
         self.draw_tabs()
-        print(self.prev)
         if name == self.selected:   # если закрываем выбранную вкладку, выберем предыдущую или первую
             self.selected = None
             if self.tabs:
@@ -879,11 +898,14 @@ class StatusBar(Frame):
             Label(self, textvariable=var, anchor=W, padx=3, borderwidth=2, relief=GROOVE).place(relx=relx, rely=0.5, relwidth=width, anchor=W)
             relx += width
             var_name = label.replace(' ', '').lower()
-            self._vars[var_name] = (var, label)
+            self._vars[var_name] = [var, label, None]
             self.set(var_name, '')
 
     def set(self, var, value):
-        self._vars[var][0].set(self._vars[var][1] + ": " + str(value))
+        value = str(value)
+        if not value == self._vars[var][2]:
+            self._vars[var][0].set(self._vars[var][1] + ": " + value)
+            self._vars[var][2] = value
 
     def clear(self):
         for var_name in self._vars:
