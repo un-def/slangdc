@@ -319,7 +319,14 @@ class HubTab(Tab):
             return True
 
     def format_message(self, nick, text, me):
-        text = text.replace('\r', '')
+        if config.settings['detect_utf8'] and self.dc_settings['encoding'].lower() not in ('utf-8', 'utf8'):
+            try:
+                text = text.encode(self.dc_settings['encoding']).decode('utf-8')
+            except UnicodeDecodeError:
+                pass
+        text = text.replace('\r\n', '\n')
+        repl = '\n' if config.settings['cr2lf'] else ' '
+        text = text.replace('\r', repl)
         nick_tag = 'user_nick'
         if self.dc:
             if nick == self.dc.nick:
@@ -929,7 +936,7 @@ class SettingsWindow(Toplevel):
 
     def __init__(self):
         super().__init__()
-        self.title("settings")
+        self.title("Settings")
         self.resizable(width=FALSE, height=FALSE)
         self.protocol('WM_DELETE_WINDOW', self.close)
         # (field_name, field_type, field_text)
@@ -944,7 +951,9 @@ class SettingsWindow(Toplevel):
             ('reconnect', 'bool', 'Reconnect'),
             ('reconnect_delay', 'int', 'Reconnect delay'),
             ('show_joins', 'bool', 'Show joins/parts in chat'),
-            ('chat_addr_sep', 'str', 'Chat address separator')
+            ('chat_addr_sep', 'str', 'Chat address separator'),
+            ('detect_utf8', 'bool', 'Force UTF-8 detection'),
+            ('cr2lf', 'bool', 'Display CR as newline')
         )
         self.entry_vars = {}
         grid_frame = Frame(self)

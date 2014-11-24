@@ -14,7 +14,9 @@ class Config:
         'reconnect': True,
         'reconnect_delay': 10,
         'show_joins': False,
-        'chat_addr_sep': ':'
+        'chat_addr_sep': ':',
+        'detect_utf8': False,
+        'cr2lf': False
     }
 
     def __init__(self):
