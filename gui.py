@@ -119,22 +119,32 @@ class Gui:
 ### tab ###
 
     def tab_add(self, type_, name, state=0, dc_settings=None, pm_send_callback=None):
-        # select=True - переключиться на новую вкладку
-        if type_ == 'hub':
-            tab = HubTab(   name=name,
+        if not name in self.tabs:
+            if type_ == 'hub':
+                tab = HubTab(   name=name,
+                                parent_widget=self.tab_frame,
+                                dc_settings=dc_settings,
+                                tab_update_callback=self.tab_update,
+                                tab_add_callback=self.tab_add,
+                                tab_select_callback=self.tab_select)
+            elif type_ == 'pm':
+                tab = PMTab(name=name,
+                            state=state,
                             parent_widget=self.tab_frame,
-                            dc_settings=dc_settings,
                             tab_update_callback=self.tab_update,
-                            tab_add_callback=self.tab_add,
-                            tab_select_callback=self.tab_select)
-        elif type_ == 'pm':
-            tab = PMTab(name=name,
-                        state=state,
-                        parent_widget=self.tab_frame,
-                        tab_update_callback=self.tab_update,
-                        pm_send_callback=pm_send_callback)
-        self.tabbar.add_tab(name=self.make_tb_tab_name(type_, name))
-        self.tabs[name] = tab
+                            pm_send_callback=pm_send_callback)
+            self.tabbar.add_tab(name=self.make_tb_tab_name(type_, name))
+            self.tabs[name] = tab
+        else:
+            ''' быстрый костыль - при попытке добавить уже существующую
+                вкладку вернёт ссылку на неё, обновив при этом атрибуты
+                (для PM - зарегистрирует новый коллбэк на кнопку Send)
+            '''
+            зарегистрирует
+            tab = self.tabs[name]
+            tab.state = state
+            if type_ == 'pm':
+                tab.set_pm_send_callback(pm_send_callback)
         self.tab_update(type_, name)
         return tab
 
@@ -196,7 +206,7 @@ class Gui:
             self.tabs[name[0]].close_pm_tab(name[1])
         else:
             self.tabs[name].close()
-        self.tabs.pop(name)
+        del self.tabs[name]
 
 
 class Tab:
@@ -278,7 +288,7 @@ class HubTab(Tab):
 
     def close_pm_tab(self, name):
         self.pm_tabs[name].close()
-        self.pm_tabs.pop(name)
+        del self.pm_tabs[name]
 
     def update_pm_tabs(self, state=0):
         for tab in self.pm_tabs.values():
@@ -477,6 +487,9 @@ class PMTab(Tab):
 
     def update(self):
         self.tab_update_callback(type_='pm', name=self.name)
+
+    def set_pm_send_callback(self, pm_send_callback):
+        self.message_box.submit_callback = pm_send_callback
 
 
 class AppMenu(Menu):
