@@ -1,6 +1,7 @@
 # -*-coding: UTF-8 -*-
 import webbrowser
 import re
+import time
 import threading
 from datetime import datetime
 from tkinter import *
@@ -209,10 +210,6 @@ class Gui:
         tab = self.tab_instance(type_, name)
         tab.close()
         if type_ == 'hub':
-            if name in self.pm_tabs:
-                for pm_tab in self.pm_tabs[name].values():   # pm_tab - объект
-                    pm_tab.state = 0
-                    self.tab_update(type_='pm', name=pm_tab.name)
             del self.hub_tabs[name]
         elif type_ == 'pm':
             del self.pm_tabs[name[0]][name[1]]
@@ -310,7 +307,24 @@ class HubTab(Tab):
     def close(self):
         self.disconnect()
         self.hide()
+        self.set_state_pm_tabs(0)
         recursive_destroy(self.frame)
+
+    def set_state(self, state):
+        self.state = state
+        self.update()
+
+    def set_state_pm_tabs(self, state, nicks=None):
+        ''' обновляет статус всех (nicks=None) PM табов
+            или только тех, ники которых присутствуют в
+            nicks
+        '''
+        pm_tabs = self.tab_pm_callback(name=self.name)   # получаем словарь всех дочерних табов (или None)
+        if pm_tabs:
+            timestamp = self.timestamp()
+            for tab_name, tab_instance in pm_tabs.items():
+                if nicks is None or tab_name in nicks:
+                    tab_instance.set_state(state, timestamp)
 
     def connect(self):
         if not self.connect_loop_running:
@@ -343,8 +357,12 @@ class HubTab(Tab):
                 self.message_box.message_text.insert(INSERT, nick)
                 self.message_box.message_text.focus_set()
             elif action == 'pm':
-                self.tab_pm_callback(name=tab_pm_name, add_new=True, select=True)
+                self.tab_pm_callback(name=(self.name, nick), add_new=True, select=True)
             return True
+
+    def timestamp(self, unix_time=None):
+        if not unix_time: unix_time = time.time()
+        return datetime.fromtimestamp(unix_time).strftime('[%H:%M:%S]')
 
     def format_message(self, nick, text, me):
         if config.settings['detect_utf8'] and self.dc_settings['encoding'].lower() not in ('utf-8', 'utf8'):
@@ -402,10 +420,7 @@ class HubTab(Tab):
     def check_loop(self):
         if not (self.dc.connecting or self.dc.connected):
             self.set_state(0)
-            pm_tabs = self.tab_pm_callback(name=self.name)   # получаем словарь всех дочерних табов (или None)
-            if pm_tabs:
-                for pm_tab in pm_tabs.values():
-                    pm_tab.set_state(0)
+            self.set_state_pm_tabs(0)
             self.userlist.clear()
             self.statusbar_clear()
             if self.do_connect and config.settings['reconnect'] and config.settings['reconnect_delay'] > 0:
@@ -446,6 +461,7 @@ class HubTab(Tab):
                 self.queue_loop_running = False
                 return
             else:
+                timestamp = self.timestamp(message['time'])
                 tab = self   # или дочерняя PM вкладка
                 if message['type'] == slangdc.MSGCHAT:
                     msg = self.format_message(message['nick'], message['text'], message['me'])
@@ -471,18 +487,14 @@ class HubTab(Tab):
                         msg = ('info', "*** {0}s: {1}".format(message['state'], message['nick']))
                     else:
                         msg = None
-                    pm_tabs = self.tab_pm_callback(name=self.name)
-                    if pm_tabs:
-                        if isinstance(message['nick'], str):
-                            nicks = (message['nick'],)
-                        else:
-                            nicks = message['nick']
-                        for nick in nicks:
-                            if nick in pm_tabs:
-                                state = 1 if message['state'] == 'join' else 0
-                                pm_tabs[nick].set_state(state)
+                        if self.tab_pm_callback(name=self.name):   # если PM табов нет, не будем впустую вызывать
+                            if isinstance(message['nick'], str):
+                                nicks = (message['nick'],)
+                            else:
+                                nicks = message['nick']
+                            state = 1 if message['state'] == 'join' else 0
+                            self.set_state_pm_tabs(state, nicks)
                 if msg:
-                    timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
                     tab.chat.add_message('timestamp', timestamp, 'text', " ", *msg)
                     # обновим счётчик непрочитанных (только для сообщий чата и PM, информационные
                     # и прочие сообщения игнорируем)
@@ -525,6 +537,14 @@ class PMTab(Tab):
     def close(self):
         self.hide()
         recursive_destroy(self.frame)
+
+    def set_state(self, state, timestamp):
+        # timestamp - отформатированная строка
+        prev_state = self.state
+        self.state = state
+        self.update()
+        if prev_state != state:   # не выводим одинаковые сообщения подряд
+            self.chat.add_message('timestamp', timestamp, 'text', " ", 'info', "*** User went {}".format(('offline', 'online')[state]))
 
     def set_pm_send_callback(self, pm_send_callback):
         self.message_box.submit_callback = pm_send_callback
