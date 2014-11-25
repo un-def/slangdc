@@ -51,27 +51,23 @@ class Gui:
         self.tab_frame = Frame(main_frame)
         self.tab_frame.pack(side=TOP, expand=YES, fill=BOTH)
         #
-        self.tabs = {}      # имя_таба: инстанс_таба
-                            # имя_таба = адрес_хаба или (адрес_хаба, ник)
-        self.current_tab = None   # имя_активного таба (см. выше)
+        self.hub_tabs = {}      # {имя_хаб_таба: инстанс, …}
+        self.pm_tabs = {}       # {имя_хаб_таба: {имя_PM_таба: инстанс, …}, …}
+        self.current_tab = {'type_': None, 'name': None}
         self.root.after(1000, self.statusbar_update)
 
-### gui ###
+    ### gui methods ###
 
     def mainloop(self):
         self.root.mainloop()
 
     def statusbar_update(self):
-        if self.current_tab:
-            try:
-                if isinstance(self.current_tab, tuple):
-                    statusbar = self.tabs[self.current_tab[0]].statusbar
-                else:
-                    statusbar = self.tabs[self.current_tab].statusbar
-                for var, value in statusbar.items():
-                    self.statusbar.set(var, value)
-            except KeyError:
-                self.statusbar.clear()
+        current_tab = self.tab_instance(parent=True, **self.current_tab)
+        if current_tab:
+            for var, value in current_tab.statusbar.items():
+                self.statusbar.set(var, value)
+        else:
+            self.statusbar.clear()
         self.root.after(1000, self.statusbar_update)
 
     def connect(self, dc_settings=None):
@@ -81,16 +77,16 @@ class Gui:
         '''
         if dc_settings:
             name = dc_settings['address']
-            if not name in self.tabs:
-                self.tab_add(type_='hub', name=name, dc_settings=dc_settings)
+            if not name in self.hub_tabs:
+                self.tab_add_hub(name, dc_settings)
                 self.tab_connect(name)
             self.tab_select('hub', name)
-        elif self.current_tab:
-            self.tab_connect(self.current_tab)
+        elif self.current_tab['type_'] == 'hub':
+            self.tab_connect(self.current_tab['name'])
 
     def disconnect(self):
-        if self.current_tab:
-            self.tab_disconnect(self.current_tab)
+        if self.current_tab['type_'] == 'hub':
+            self.tab_disconnect(self.current_tab['name'])
 
     def quick_connect(self, event=None):
         address = self.quick_address.get().strip().rstrip('/').split('//')[-1]
@@ -112,40 +108,33 @@ class Gui:
 
     def quit(self):
         if askyesno("Quit confirmation", "Really quit?"):
-            for tab in self.tabs:
+            for tab in self.hub_tabs:
                 self.tab_disconnect(tab)
             self.root.quit()
 
-### tab ###
+    ### tabs methods ###
 
-    def tab_add(self, type_, name, state=0, dc_settings=None, pm_send_callback=None):
-        if not name in self.tabs:
-            if type_ == 'hub':
-                tab = HubTab(   name=name,
-                                parent_widget=self.tab_frame,
-                                dc_settings=dc_settings,
-                                tab_update_callback=self.tab_update,
-                                tab_add_callback=self.tab_add,
-                                tab_select_callback=self.tab_select)
-            elif type_ == 'pm':
-                tab = PMTab(name=name,
-                            state=state,
-                            parent_widget=self.tab_frame,
-                            tab_update_callback=self.tab_update,
-                            pm_send_callback=pm_send_callback)
-            self.tabbar.add_tab(name=self.make_tb_tab_name(type_, name))
-            self.tabs[name] = tab
-        else:
-            ''' быстрый костыль - при попытке добавить уже существующую
-                вкладку вернёт ссылку на неё, обновив при этом атрибуты
-                (для PM - зарегистрирует новый коллбэк на кнопку Send)
-            '''
-            зарегистрирует
-            tab = self.tabs[name]
-            tab.state = state
-            if type_ == 'pm':
-                tab.set_pm_send_callback(pm_send_callback)
-        self.tab_update(type_, name)
+    def tab_add_hub(self, name, dc_settings):
+        tab = HubTab(   name=name,
+                        parent_widget=self.tab_frame,
+                        dc_settings=dc_settings,
+                        tab_update_callback=self.tab_update,
+                        tab_pm_callback=self.tab_pm_get_cb)
+        self.tabbar.add_tab(name=self.make_tb_tab_name('hub', name))
+        self.hub_tabs[name] = tab
+        return tab
+
+    def tab_add_pm(self, name, state, pm_send_callback):
+        # name - (имя_хаб_таба, имя_PM_таба)
+        tab = PMTab(    name=name,
+                        state=state,
+                        parent_widget=self.tab_frame,
+                        tab_update_callback=self.tab_update,
+                        pm_send_callback=self.tab_pm_send_cb)
+        self.tabbar.add_tab(name=self.make_tb_tab_name('pm', name))
+        if not name[0] in self.pm_tabs:
+            self.pm_tabs[name[0]] = {}
+        self.pm_tabs[name[0]][name[1]] = tab
         return tab
 
     def tab_select(self, type_, name):
@@ -157,21 +146,34 @@ class Gui:
             label = name
         elif type_ == 'pm':
             label = "PM: " + name[1]
-        state = self.tabs[name].state
-        label = label if self.tabs[name].unread == 0 else "({}) {}".format(self.tabs[name].unread, label)
+        tab = self.tab_instance(type_, name)
+        state = tab.state
+        label = label if tab.unread == 0 else "({}) {}".format(tab.unread, label)
         self.tabbar.update_tab(self.make_tb_tab_name(type_, name), label, state)
 
     def tab_connect(self, name):
-        try:
-            self.tabs[name].connect()
-        except AttributeError:
-            pass
+        # только для хаб-табов
+        self.hub_tabs[name].connect()
 
     def tab_disconnect(self, name):
+        # только для хаб-табов
+        self.hub_tabs[name].disconnect()
+
+    def tab_instance(self, type_, name, parent=False):
+        ''' возвращает ссылку на экземпляр таба (по его типу и имени)
+            parent=True (для PM-табов) - вернуть ссылку не на PM таб,
+            а на родительский (хаб) таб
+        '''
         try:
-            self.tabs[name].disconnect()
-        except AttributeError:
-            pass
+            if type_ == 'hub':
+                return self.hub_tabs[name]
+            elif type_ == 'pm':
+                if parent:
+                    return self.hub_tabs[name[0]]
+                else:
+                    return self.pm_tabs[name[0]][name[1]]
+        except KeyError:
+            return None
 
     def make_tb_tab_name(self, type_, name):
         if type_ == 'hub':
@@ -189,24 +191,71 @@ class Gui:
             name = (name_split[1], name_split[2])
         return (type_, name)
 
+    ### callbacks ###
+
     def tab_select_cb(self, tb_tab_name):
+        # коллбэк для инстанса TabBar
         type_, name = self.split_tb_tab_name(tb_tab_name)
-        if self.current_tab in self.tabs:
-            self.tabs[self.current_tab].hide()
-        self.tabs[name].show()
-        self.current_tab = name
+        current_tab = self.tab_instance(**self.current_tab)
+        if current_tab:
+            current_tab.hide()
+        self.tab_instance(type_, name).show()
+        self.current_tab['type_'] = type_
+        self.current_tab['name'] = name
 
     def tab_close_cb(self, tb_tab_name):
-        ''' если это PM таб и родительский таб ещё не закрыт, то делегируем
-            закрытие родительскому табу (он должен удалить PM таб из своего
-            pm_tabs; иначе закрываем напрямую
-        '''
+        # коллбэк для инстанса TabBar
         type_, name = self.split_tb_tab_name(tb_tab_name)
-        if type_ == 'pm' and name[0] in self.tabs:
-            self.tabs[name[0]].close_pm_tab(name[1])
+        tab = self.tab_instance(type_, name)
+        tab.close()
+        if type_ == 'hub':
+            if name in self.pm_tabs:
+                for pm_tab in self.pm_tabs[name].values():   # pm_tab - объект
+                    pm_tab.state = 0
+                    self.tab_update(type_='pm', name=pm_tab.name)
+            del self.hub_tabs[name]
+        elif type_ == 'pm':
+            del self.pm_tabs[name[0]][name[1]]
+
+    def tab_pm_get_cb(self, name=None, add_new=False, select=False):
+        ''' коллбэк для хаб-таба - возвращает ссылку на объект PM-таба или
+            все дочерние PM-табы в виде словаря
+            name=(имя_хаб_таба, имя_PM_таба) - вернуть ссылку на один таб
+            name=имя_хаб_таба - вернуть ссылку на словарь всех PM-табов
+            {имя_PM_таба: инстанс, …}
+            если PM-таб(ы) не существует(-ют), возвращает None
+            если add_new=True и name=(имя_хаб_таба, имя_PM_таба), то при
+            отсутствии PM-таба он будет создан
+            select=True - переключиться на PM-таб
+        '''
+        if isinstance(name, str):
+            return self.pm_tabs.get(name)
         else:
-            self.tabs[name].close()
-        del self.tabs[name]
+            tab = self.tab_instance('pm', name)
+            if not tab and add_new:
+                tab = self.tab_add_pm(name, 1, 'pm_send_callback')
+            if select:
+                self.tab_select('pm', name)
+            return tab
+
+    def tab_pm_send_cb(self, name, message):
+        ''' мост между PM и хаб табами для отправки личных
+            сообщений: PM таб вызывает этот коллбэк, передавая своё
+            имя - кортеж (имя_хаб_таба, имя_PM_таба), коллбэк
+            отыскивает родительский хаб таб в self.hub_tabs
+            и вызывает его метод pm_send(recipient, message)
+            если хаб таба нет (закрыт, а вкладка с личкой осталась),
+            возвращает False, иначе возвращает то, что возвращает
+            pm_send (True или False)
+
+            pm_send(self, recipient, message):
+        '''
+        hub_tab = self.tab_instance(type_='pm', name=name, parent=True)
+        if not hub_tab:
+            return False
+        else:
+            return hub_tab.pm_send(name[1], message)
+        pm_send(self, recipient, message)
 
 
 class Tab:
@@ -217,6 +266,13 @@ class Tab:
         self.visible = False
         self.unread = 0
         self.frame = Frame(parent_widget)
+
+    def update(self):
+        self.tab_update_callback(type_=self.type_, name=self.name)
+
+    def set_state(self, state):
+        self.state = state
+        self.update()
 
     def show(self):
         self.visible = True
@@ -231,18 +287,18 @@ class Tab:
 
 class HubTab(Tab):
 
-    def __init__(self, name, parent_widget, dc_settings, tab_update_callback, tab_add_callback, tab_select_callback):
+    def __init__(self, name, parent_widget, dc_settings, tab_update_callback, tab_pm_callback):
         super().__init__(name, parent_widget)
+        self.type_ = 'hub'
+        self.state = 0
         self.dc = None
         self.dc_settings = dc_settings
         self.tab_update_callback = tab_update_callback
-        self.tab_add_callback = tab_add_callback
-        self.tab_select_callback = tab_select_callback
-        self.chat_loop_running = False
+        self.tab_pm_callback = tab_pm_callback
+        self.queue_loop_running = False
         self.userlist_loop_running = False
         self.connect_loop_running = False
         self.do_connect = False
-        self.state = 0
         self.statusbar_clear()
         self.pass_event = PassEvent()   # эвент для коммуникации между тредами (получения пароля)
         self.message_box = MessageBox(self.frame, side=BOTTOM, expand=NO, fill=X, submit_callback=self.chat_send)
@@ -250,7 +306,6 @@ class HubTab(Tab):
         chat_ul_frame.pack(side=TOP, expand=YES, fill=BOTH)
         self.userlist = UserList(chat_ul_frame, side=RIGHT, expand=NO, fill=Y, nick_callback=self.nick_action)
         self.chat = Chat(chat_ul_frame, side=LEFT, expand=YES, fill=BOTH, nick_callback=self.nick_action)
-        self.pm_tabs = {}
 
     def close(self):
         self.disconnect()
@@ -272,31 +327,6 @@ class HubTab(Tab):
         self.pass_event.password = None   # сбросим пароль, введённый вручную
         if self.dc and self.dc.connected:
             self.dc.disconnect()
-            self.update_pm_tabs(state=0)
-
-    def update(self):
-        self.tab_update_callback(type_='hub', name=self.name)
-
-    def add_pm_tab(self, name, state):
-        pm_send_callback = lambda m, r=name: self.pm_send(r, m)
-        new_tab = self.tab_add_callback(type_='pm',
-                                        name=(self.name, name),
-                                        state=state,
-                                        pm_send_callback=pm_send_callback
-                                        )
-        self.pm_tabs[name] = new_tab
-
-    def close_pm_tab(self, name):
-        self.pm_tabs[name].close()
-        del self.pm_tabs[name]
-
-    def update_pm_tabs(self, state=0):
-        for tab in self.pm_tabs.values():
-            tab.state = 0
-            tab.update()
-
-    def select_pm_tab(self, name):
-        self.tab_select_callback(type_='pm', name=(self.name, name))
 
     def statusbar_clear(self):
         self.statusbar = {
@@ -313,9 +343,7 @@ class HubTab(Tab):
                 self.message_box.message_text.insert(INSERT, nick)
                 self.message_box.message_text.focus_set()
             elif action == 'pm':
-                if not nick in self.pm_tabs:
-                    self.add_pm_tab(nick, state=1)
-                self.select_pm_tab(nick)
+                self.tab_pm_callback(name=tab_pm_name, add_new=True, select=True)
             return True
 
     def format_message(self, nick, text, me):
@@ -373,9 +401,11 @@ class HubTab(Tab):
 
     def check_loop(self):
         if not (self.dc.connecting or self.dc.connected):
-            self.state = 0
-            self.update()
-            self.update_pm_tabs(state=0)
+            self.set_state(0)
+            pm_tabs = self.tab_pm_callback(name=self.name)   # получаем словарь всех дочерних табов (или None)
+            if pm_tabs:
+                for pm_tab in pm_tabs.values():
+                    pm_tab.set_state(0)
             self.userlist.clear()
             self.statusbar_clear()
             if self.do_connect and config.settings['reconnect'] and config.settings['reconnect_delay'] > 0:
@@ -393,15 +423,15 @@ class HubTab(Tab):
             self.frame.after(100, self.check_loop)
 
     def connect_loop(self):
-        if self.chat_loop_running or self.userlist_loop_running:
+        if self.queue_loop_running or self.userlist_loop_running:
             self.frame.after(100, self.connect_loop)
         else:
             if self.do_connect:
                 self.dc = slangdc.DCClient(**self.dc_settings)
                 DCThread(self.dc, self.pass_event).start()
-                self.chat_loop_running = True
+                self.queue_loop_running = True
                 self.chat_userlist_running = True
-                self.frame.after(100, self.chat_loop)
+                self.frame.after(100, self.queue_loop)
                 self.frame.after(100, self.userlist_loop)
                 self.frame.after(100, self.check_loop)
             self.frame.after(2000, self.reset_connect_loop_flag)   # 2 секунды игнорируем повторные попытки подключиться
@@ -409,11 +439,11 @@ class HubTab(Tab):
     def reset_connect_loop_flag(self):   # lambda - это вам не function() {...}
         self.connect_loop_running = False   # поэтому тривиальное действие приходится выносить в отдельную функцию
 
-    def chat_loop(self):
+    def queue_loop(self):
         message = self.dc.message_queue.mget()
         if message:
             if message['type'] == slangdc.MSGEND:
-                self.chat_loop_running = False
+                self.queue_loop_running = False
                 return
             else:
                 tab = self   # или дочерняя PM вкладка
@@ -421,13 +451,12 @@ class HubTab(Tab):
                     msg = self.format_message(message['nick'], message['text'], message['me'])
                 elif message['type'] == slangdc.MSGPM:
                     if 'sender' in message:   # входящее сообщение
-                        if not message['sender'] in self.pm_tabs:
-                            self.add_pm_tab(message['sender'], state=1)
                         nick = message['nick'] if message['nick'] else message['sender']
-                        tab = self.pm_tabs[message['sender']]
+                        tab_pm_name = (self.name, message['sender'])
                     else:   # исходящее сообщение
                         nick = self.dc.nick
-                        tab = self.pm_tabs[message['recipient']]
+                        tab_pm_name = (self.name, message['recipient'])
+                    tab = self.tab_pm_callback(name=tab_pm_name, add_new=True)
                     msg = self.format_message(nick, message['text'], message['me'])
                 elif message['type'] == slangdc.MSGERR:
                     msg = ('error', "*** " + message['text'])
@@ -442,21 +471,25 @@ class HubTab(Tab):
                         msg = ('info', "*** {0}s: {1}".format(message['state'], message['nick']))
                     else:
                         msg = None
-                    if isinstance(message['nick'], str):
-                        nicks = (message['nick'],)
-                    else:
-                        nicks = message['nick']
-                    for nick in nicks:
-                        if nick in self.pm_tabs:
-                            self.pm_tabs[nick].state = 1 if message['state'] == 'join' else 0
-                            self.pm_tabs[nick].update()
+                    pm_tabs = self.tab_pm_callback(name=self.name)
+                    if pm_tabs:
+                        if isinstance(message['nick'], str):
+                            nicks = (message['nick'],)
+                        else:
+                            nicks = message['nick']
+                        for nick in nicks:
+                            if nick in pm_tabs:
+                                state = 1 if message['state'] == 'join' else 0
+                                pm_tabs[nick].set_state(state)
                 if msg:
                     timestamp = datetime.fromtimestamp(message['time']).strftime('[%H:%M:%S]')
                     tab.chat.add_message('timestamp', timestamp, 'text', " ", *msg)
-                    if not tab.visible:
+                    # обновим счётчик непрочитанных (только для сообщий чата и PM, информационные
+                    # и прочие сообщения игнорируем)
+                    if not tab.visible and message['type'] in (slangdc.MSGCHAT, slangdc.MSGPM):
                         tab.unread += 1
                         tab.update()
-        self.frame.after(10, self.chat_loop)
+        self.frame.after(10, self.queue_loop)
 
     def userlist_loop(self):
         if self.dc.connecting or self.dc.connected:
@@ -482,18 +515,16 @@ class PMTab(Tab):
 
     def __init__(self, name, state, parent_widget, tab_update_callback, pm_send_callback):
         super().__init__(name, parent_widget)
+        self.type_ = 'pm'
+        self.state = state
         self.tab_update_callback = tab_update_callback
-        self.message_box = MessageBox(self.frame, side=BOTTOM, expand=NO, fill=X, submit_callback=pm_send_callback)
+        self.message_box = MessageBox(self.frame, side=BOTTOM, expand=NO, fill=X, submit_callback=lambda message:pm_send_callback(self.name, message))
         self.chat = Chat(self.frame, side=TOP, expand=YES, fill=BOTH, nick_callback=None)
         Label(self.frame, text='PM: {} @ {}'.format(name[1], name[0]), anchor=W).pack(side=TOP, expand=NO, fill=X)
-        self.state = state
 
     def close(self):
         self.hide()
         recursive_destroy(self.frame)
-
-    def update(self):
-        self.tab_update_callback(type_='pm', name=self.name)
 
     def set_pm_send_callback(self, pm_send_callback):
         self.message_box.submit_callback = pm_send_callback
