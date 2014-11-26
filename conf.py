@@ -1,4 +1,5 @@
 # -*-coding: UTF-8 -*-
+import os
 import json
 
 class Config:
@@ -20,8 +21,9 @@ class Config:
     }
 
     def __init__(self):
-        self.settings_filename = 'settings.json'
-        self.bookmarks_filename = 'bookmarks.json'
+        self.path = (os.path.abspath(os.path.dirname(__file__)))
+        self.settings_filename = os.path.join(self.path, 'settings.json')
+        self.bookmarks_filename = os.path.join(self.path, 'bookmarks.json')
         self.settings = self.load_settings()
 
     def load_file(self, file, default=None, save=False):
