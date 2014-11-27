@@ -62,14 +62,14 @@ class Gui:
     def mainloop(self):
         self.root.mainloop()
 
-    def statusbar_update(self):
+    def statusbar_update(self, loop=True):
         current_tab = self.tab_instance(parent=True, **self.current_tab)
         if current_tab:
             for var, value in current_tab.statusbar.items():
                 self.statusbar.set(var, value)
         else:
             self.statusbar.clear()
-        self.root.after(1000, self.statusbar_update)
+        if loop: self.root.after(1000, self.statusbar_update)
 
     def connect(self, dc_settings=None):
         ''' без аргументов - (пере)подключается в выбранной вкладке (всегда);
@@ -203,6 +203,7 @@ class Gui:
         self.tab_instance(type_, name).show()
         self.current_tab['type_'] = type_
         self.current_tab['name'] = name
+        self.statusbar_update(loop=False)
 
     def tab_close_cb(self, tb_tab_name):
         # коллбэк для инстанса TabBar
