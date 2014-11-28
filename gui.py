@@ -1027,13 +1027,16 @@ class SettingsWindow(Toplevel):
         new_settings = {}
         for field_name, (entry_var, field_type) in self.entry_vars.items():
             val = entry_var.get()
+            if field_type in ('str', 'int'):
+                val = val.strip()
             if field_type == 'int':
                 try:
                     val = int(val)
                 except ValueError:   # валидации форм нет, поэтому вместо недопустимых значений берём дефолтные
                     val = config.default_settings[field_name]
             new_settings[field_name] = val
-        config.save_settings(new_settings)
+        if new_settings != config.settings:
+            config.save_settings(new_settings)
         self.close()
 
     def close(self):
