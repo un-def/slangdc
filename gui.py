@@ -245,8 +245,6 @@ class Gui:
             если хаб таба нет (закрыт, а вкладка с личкой осталась),
             возвращает False, иначе возвращает то, что возвращает
             pm_send (True или False)
-
-            pm_send(self, recipient, message):
         '''
         hub_tab = self.tab_instance(type_='pm', name=name, parent=True)
         if not hub_tab:
@@ -316,9 +314,8 @@ class HubTab(Tab):
         self.update()
 
     def set_state_pm_tabs(self, state, nicks=None):
-        ''' обновляет статус всех (nicks=None) PM табов
-            или только тех, ники которых присутствуют в
-            nicks
+        ''' обновляет статус всех (nicks=None) PM табов или только тех,
+            ники которых присутствуют в nicks
         '''
         pm_tabs = self.tab_pm_callback(name=self.name)   # получаем словарь всех дочерних табов (или None)
         if pm_tabs:
@@ -1096,9 +1093,7 @@ class DCThread(threading.Thread):
 
     def pass_callback(self):
         ''' однажды введённый пароль храним в атрибуте эвента, пока не будет
-            нажата кнопка Disconnect или инициировано новое подключение через
-            закладки или Quick connect (тоже вызывают disconnect(), который
-            сбрасывает pass_event.password в None)
+            нажата кнопка Disconnect
         '''
         if not self.pass_event.password:
             self.pass_event.clear()   # сбрасываем эвент (False) (по умолчанию было True)
