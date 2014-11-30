@@ -90,7 +90,7 @@ class Gui:
             self.tab_disconnect(self.current_tab['name'])
 
     def quick_connect(self, event=None):
-        address = self.quick_address.get().strip().rstrip('/').split('//')[-1]
+        address = config.trim_address(self.quick_address.get())
         if address:
             self.quick_address.delete(0, END)
             self.quick_address.insert(0, address)
@@ -99,7 +99,7 @@ class Gui:
 
     def bookmark_connect(self, bm_number):
         dc_settings = config.make_dc_settings_from_bm(bm_number)
-        self.connect(dc_settings)
+        if dc_settings: self.connect(dc_settings)
 
     def show_settings(self):
         try:
@@ -1102,6 +1102,4 @@ class DCThread(threading.Thread):
 
 
 config = conf.Config()
-config.load_settings()
-config.load_bookmarks()
 Gui().mainloop()

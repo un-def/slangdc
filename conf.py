@@ -24,7 +24,8 @@ class Config:
         self.path = (os.path.abspath(os.path.dirname(__file__)))
         self.settings_filename = os.path.join(self.path, 'settings.json')
         self.bookmarks_filename = os.path.join(self.path, 'bookmarks.json')
-        self.settings = self.load_settings()
+        self.load_settings()
+        self.load_bookmarks()
 
     def load_file(self, file, default=None, save=False):
         modified = False
@@ -87,7 +88,14 @@ class Config:
             закладки; недостающие в закладке поля берутся из текущих настроек
             (Config.settings)
         '''
+        address = self.trim_address(self.bookmarks[bm_number].get('address', ''))
+        if not address: return False
         dc_settings = self.make_dc_settings()
         dc_settings.update(self.bookmarks[bm_number])
+        dc_settings['address'] = address
         dc_settings.pop('name')
         return dc_settings
+
+    def trim_address(self, address):
+        address = address.strip().rstrip('/').split('//')[-1]
+        return address[:-4] if address.endswith(':411') else address
