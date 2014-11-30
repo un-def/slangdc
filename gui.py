@@ -558,7 +558,8 @@ class AppMenu(Menu):
         menu_bookmarks = Menu(self, tearoff=False)
         if bookmarks:
             for bm_number, bookmark in enumerate(bookmarks):
-                menu_bookmarks.add_command(label=bookmark['name'], command=lambda n=bm_number: action(n))
+                if 'name' in bookmark:
+                    menu_bookmarks.add_command(label=bookmark['name'], command=lambda n=bm_number: action(n))
         else:
             menu_bookmarks.add_command(label="Empty", state=DISABLED)
         self.add_cascade(label="Bookmarks", menu=menu_bookmarks)
