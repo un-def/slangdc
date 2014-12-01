@@ -813,6 +813,14 @@ class Chat(Frame):
             chat_lines = int(self.chat.index('end-1c').split('.')[0])
             if chat_lines > self.max_lines:
                 del_to = str(chat_lines-self.max_lines+1) + '.0'
+                from_ = '1.0'
+                while True:   # удаляем ссылки, выходящие за пределы max_lines
+                    link_range = self.chat.tag_nextrange('link', from_, del_to)
+                    if not link_range: break
+                    link_tag = self.chat.tag_names(index=link_range[0])[1]   # 0 - link, 1 - link-%d (в том же порядке, как при insert)
+                    del self.links[link_tag]
+                    self.chat.tag_delete(link_tag)   # тег тоже удаляем (может, и не надо, не знаю, как они хранятся в Tk)
+                    from_ = link_range[1]
                 self.chat.delete('1.0', del_to)
             if self.autoscroll.get():
                 self.chat.see(END)
@@ -821,6 +829,10 @@ class Chat(Frame):
         with self.lock:
             self.chat.delete('1.0', END)
             self.empty = True
+            self.links.clear()
+            for i in range(1, self.link_index):
+                self.chat.tag_delete('link-' + str(i))
+            self.link_index = 1
 
     def text_copy(self, event):
         if self.chat.tag_ranges(SEL):
