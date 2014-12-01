@@ -1,5 +1,6 @@
 # -*-coding: UTF-8 -*-
 import webbrowser
+import urllib.parse
 import re
 import time
 import threading
@@ -709,8 +710,7 @@ class Chat(Frame):
         tags_bindings = (
             ('text',    ('<Double-1>', self.extract_nick, 'insert'),
                         ('<Double-3>', self.extract_nick, 'pm')),
-            ('link',    ('<Button-1>', self.link_click),
-                        ('<Enter>', self.link_enter),
+            ('link',    ('<Enter>', self.link_enter),
                         ('<Leave>', self.link_leave)),
             ('user_nick',   ('<Double-1>', self.nick_click, 'insert'),
                             ('<Double-3>', self.nick_click, 'pm')),
@@ -731,18 +731,22 @@ class Chat(Frame):
         chat.bind('<Key>', self.nav_keys)
         self.chat = chat
         self.empty = True
+        self.links = {}
+        self.link_index = 1   # индекс для тегов ссылок ('link-%d')
         self.nick_callback = nick_callback
         self.lock = threading.Lock()
 
-    def _get_tag_range(self, event, tag):
-        index = self.chat.index('@{},{}'.format(event.x, event.y))
+    def _get_index(self, event):
+        return self.chat.index('@{},{}'.format(event.x, event.y))
+
+    def _get_tag_range(self, index, tag):
         tag_range = self.chat.tag_prevrange(tag, index)
         if not tag_range or self.chat.compare(tag_range[1], '<', index):
             tag_range = self.chat.tag_nextrange(tag, index)
-        return (index, tag_range)
+        return tag_range
 
-    def _get_tag_text(self, event, tag):
-        _, tag_range = self._get_tag_range(event, tag)
+    def _get_tag_text(self, index, tag):
+        tag_range = self._get_tag_range(index, tag)
         return self.chat.get(*tag_range)
 
     def _split_index(self, index):
@@ -751,7 +755,8 @@ class Chat(Frame):
     def extract_nick(self, event, tag, action):
         if self.nick_callback:
             # пытается извлечь из текста под курсором ник
-            index, tag_range = self._get_tag_range(event, tag)
+            index = self._get_index(event)
+            tag_range = self._get_tag_range(index, tag)
             tag_text = self.chat.get(*tag_range)
             begin_line, begin_col = self._split_index(tag_range[0])
             index_line, index_col = self._split_index(index)
@@ -773,12 +778,14 @@ class Chat(Frame):
 
     def nick_click(self, event, tag, action):
         if self.nick_callback:
-            nick = self._get_tag_text(event, tag)
+            index = self._get_index(event)
+            nick = self._get_tag_text(index, tag)
             self.nick_callback(nick, action)
 
-    def link_click(self, event, tag):
-        link = self._get_tag_text(event, tag)
-        webbrowser.open(link)
+    def link_click(self, event):
+        index = self._get_index(event)
+        link_tag = self.chat.tag_names(index)[1]
+        webbrowser.open(self.links[link_tag])
 
     def link_enter(self, event, tag):
         self.chat.config(cursor='hand2')
@@ -797,6 +804,13 @@ class Chat(Frame):
             msg_list_iter = iter(msg_list)   # fuck tha itertools!
             for tag in msg_list_iter:
                 text = next(msg_list_iter)
+                if tag == 'link':
+                    link_tag = 'link-' + str(self.link_index)
+                    self.link_index += 1
+                    self.links[link_tag] = text
+                    self.chat.tag_bind(link_tag, '<Button-1>', self.link_click)
+                    tag = ('link', link_tag)
+                    text = urllib.parse.unquote_plus(text)
                 self.chat.insert(END, text, tag)
             chat_lines = int(self.chat.index('end-1c').split('.')[0])
             if chat_lines > self.max_lines:
