@@ -708,7 +708,8 @@ class Chat(Frame):
         tags_bindings = (
             ('text',    ('<Double-1>', self.extract_nick, 'insert'),
                         ('<Double-3>', self.extract_nick, 'pm')),
-            ('link',    ('<Enter>', self.link_enter),
+            ('link',    ('<Button-1>', self.link_click),
+                        ('<Enter>', self.link_enter),
                         ('<Leave>', self.link_leave)),
             ('user_nick',   ('<Double-1>', self.nick_click, 'insert'),
                             ('<Double-3>', self.nick_click, 'pm')),
@@ -780,7 +781,7 @@ class Chat(Frame):
             nick = self._get_tag_text(index, tag)
             self.nick_callback(nick, action)
 
-    def link_click(self, event):
+    def link_click(self, event, tag):
         index = self._get_index(event)
         link_tag = self.chat.tag_names(index)[1]
         webbrowser.open(self.links[link_tag])
@@ -806,7 +807,6 @@ class Chat(Frame):
                     link_tag = 'link-' + str(self.link_index)
                     self.link_index += 1
                     self.links[link_tag] = text
-                    self.chat.tag_bind(link_tag, '<Button-1>', self.link_click)
                     tag = ('link', link_tag)
                     text = urllib.parse.unquote_plus(text)
                 self.chat.insert(END, text, tag)
