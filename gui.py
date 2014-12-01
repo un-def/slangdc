@@ -16,6 +16,15 @@ def recursive_destroy(widget):
         recursive_destroy(child)
     widget.destroy()
 
+def readable_size(size):
+    if abs(size) < 1024:
+        return "{0:d} bytes".format(size)
+    for unit in ('KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'):
+        size /= 1024
+        if abs(size) < 1024:
+            return "{0:.2f} {1}".format(size, unit)
+    return ""
+
 
 class Gui:
 
@@ -386,7 +395,7 @@ class HubTab(Tab):
             msg = ['text', "* ", nick_tag, nick, 'text', " "]
         tags = ('text', 'link')
         cur_tag = 0
-        text_splitted = re.split('((?:http|ftp)s?://[^\s]+)', text)
+        text_splitted = re.split('((?:(?:http|ftp)s?://|magnet:\?xt=urn:tree:tiger:)[^\s]+)', text)
         for part in text_splitted:
             if part: msg.extend((tags[cur_tag], part))
             cur_tag = 1 - cur_tag
@@ -698,6 +707,7 @@ class Chat(Frame):
             ('timestamp', font_normal, 'gray'),
             ('text', font_normal, 'black'),
             ('link', font_underline, 'blue'),
+            ('broken_link', font_underline, 'gray'),
             ('own_nick', font_bold, 'green'),
             ('user_nick', font_bold, 'black'),
             ('op_nick', font_bold, 'red'),
@@ -804,11 +814,23 @@ class Chat(Frame):
             for tag in msg_list_iter:
                 text = next(msg_list_iter)
                 if tag == 'link':
+                    link = text
                     link_tag = 'link-' + str(self.link_index)
-                    self.link_index += 1
-                    self.links[link_tag] = text
                     tag = ('link', link_tag)
-                    text = urllib.parse.unquote_plus(text)
+                    if text.startswith('magnet'):
+                        parsed = re.fullmatch('magnet:\?xt=urn:tree:tiger:[A-Z0-9]{39}&xl=([0-9]+)&dn=([^\s]+)', link)
+                        if not parsed:
+                            tag = 'broken_link'
+                            text = "[broken magnet link] " + link
+                        else:
+                            fsize = readable_size(int(parsed.group(1)))
+                            fname = urllib.parse.unquote_plus(parsed.group(2))
+                            text = "{0} ({1})".format(fname, fsize)
+                    else:
+                        text = urllib.parse.unquote_plus(link)
+                    if not tag == 'broken_link':
+                        self.link_index += 1
+                        self.links[link_tag] = link
                 self.chat.insert(END, text, tag)
             chat_lines = int(self.chat.index('end-1c').split('.')[0])
             if chat_lines > self.max_lines:
