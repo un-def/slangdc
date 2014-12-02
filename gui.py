@@ -756,6 +756,7 @@ class Chat(Frame):
                 args.insert(0, tag)
                 cb = lambda e, c=callback, a=args: c(e, *a)
                 chat.tag_bind(tag, event, cb)
+        chat.bind('<Button-2>', lambda e: 'break')   # отключаем вставку средней кнопкой
         chat.bind('<Control-c>', self.text_copy)
         chat.bind('<Control-C>', self.text_copy)
         chat.bind('<Control-Tab>', lambda e: None)   # не отменяем общий биндинг переключения таба
