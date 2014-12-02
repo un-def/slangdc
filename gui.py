@@ -65,6 +65,7 @@ class Gui:
         self.hub_tabs = {}      # {имя_хаб_таба: инстанс, …}
         self.pm_tabs = {}       # {имя_хаб_таба: {имя_PM_таба: инстанс, …}, …}
         self.current_tab = {'type_': None, 'name': None}
+        self.root.bind_all('<Control-Tab>', lambda e: self.tabbar.next_tab())
         self.root.after(1000, self.statusbar_update)
 
     ### gui methods ###
@@ -150,7 +151,7 @@ class Gui:
 
     def tab_select(self, type_, name):
         # через коллбэк таббара вызывает tab_select_cb
-        self.tabbar.select_tab(self.make_tb_tab_name(type_, name))
+        self.tabbar.select_tab(name=self.make_tb_tab_name(type_, name))
 
     def tab_update(self, type_, name):
         if type_ == 'hub':
@@ -160,7 +161,7 @@ class Gui:
         tab = self.tab_instance(type_, name)
         state = tab.state
         label = label if tab.unread == 0 else "({}) {}".format(tab.unread, label)
-        self.tabbar.update_tab(self.make_tb_tab_name(type_, name), label, state)
+        self.tabbar.update_tab(name=self.make_tb_tab_name(type_, name), label=label, state=state)
 
     def tab_connect(self, name):
         # только для хаб-табов
@@ -604,7 +605,19 @@ class TabBar(Frame):
         else:
             return False
 
-    def tab_index(self, name):
+    def tab_index(self, name=None, index=None):
+        ''' tab_index(name='имя_таба')
+            возвращает индекс таба с этим именем
+            или -1, если таб не найден
+
+            tab_index(index=индекс_таба)
+            возвращает индекс или -1, если
+            индекс за пределами списка табов
+        '''
+        if not index is None:
+            return index if index < len(self.tabs) else -1
+        if name is None:
+            return -1
         for index, tab in enumerate(self.tabs):
             if tab['name'] == name: return index
         return -1
@@ -617,16 +630,16 @@ class TabBar(Frame):
         close_ = Label(button, font=('Helvetica', 5, 'bold'), bg='red', fg='white', text=' X ')
         close_.pack(side=RIGHT)
         label.pack(side=LEFT, expand=YES, fill=BOTH)
-        close_.bind('<Button-1>', lambda e: self.close_tab(name))
-        label.bind('<Button-1>', lambda e: self.select_tab(name))
+        close_.bind('<Button-1>', lambda e: self.close_tab(name=name))
+        label.bind('<Button-1>', lambda e: self.select_tab(name=name))
         tab['button'] = button
         tab['label'] = label
         tab['state'] = state
         self.tabs.append(tab)
         self.draw_tabs()
 
-    def close_tab(self, name):
-        index = self.tab_index(name)
+    def close_tab(self, name=None, index=None):
+        index = self.tab_index(name, index)
         if index == -1: return False
         tab = self.tabs.pop(index)
         tab['button'].place_forget()
@@ -636,8 +649,9 @@ class TabBar(Frame):
         if name == self.selected:   # если закрываем выбранную вкладку, выберем предыдущую или первую
             self.selected = None
             if self.tabs:
-                if self.tab_index(self.prev) == -1: self.prev = self.tabs[0]['name']
-                self.select_tab(self.prev)
+                prev_index = self.tab_index(name=self.prev)
+                if prev_index == -1: prev_index = 0
+                self.select_tab(index=prev_index)
             else:
                 self.prev = None
 
@@ -650,12 +664,13 @@ class TabBar(Frame):
                 tab['button'].place(relx=relx, rely=1, relheight=relh, relwidth=width, anchor='sw')
                 relx += width
 
-    def select_tab(self, name):
-        if self.selected == name: return
-        index = self.tab_index(name)
+    def select_tab(self, name=None, index=None):
+        index = self.tab_index(name, index)
         if index == -1: return False
+        if name is None: name = self.tabs[index]['name']
+        if self.selected == name: return False
         if self.selected:
-            sel_index = self.tab_index(self.selected)
+            sel_index = self.tab_index(name=self.selected)
             if not sel_index == -1:
                 self.tabs[sel_index]['label'].config(font=self.font_unsel)
                 self.prev = self.selected
@@ -666,8 +681,8 @@ class TabBar(Frame):
         self.draw_tabs()
         self.select_callback(name)
 
-    def update_tab(self, name, label=None, state=None):
-        index = self.tab_index(name)
+    def update_tab(self, name=None, index=None, label=None, state=None):
+        index = self.tab_index(name, index)
         if index == -1: return False
         if not label is None:
             self.tabs[index]['label'].config(text=label)
@@ -676,6 +691,12 @@ class TabBar(Frame):
             bg = self.color_on if state else self.color_off
             self.tabs[index]['button'].config(bg=bg)
             self.tabs[index]['label'].config(bg=bg)
+
+    def next_tab(self):
+        if not self.tabs: return False
+        index = self.tab_index(name=self.selected) + 1
+        if index >= len(self.tabs): index = 0
+        self.select_tab(index=index)
 
 
 class Chat(Frame):
