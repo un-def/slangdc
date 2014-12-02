@@ -758,6 +758,7 @@ class Chat(Frame):
                 chat.tag_bind(tag, event, cb)
         chat.bind('<Control-c>', self.text_copy)
         chat.bind('<Control-C>', self.text_copy)
+        chat.bind('<Control-Tab>', lambda e: None)   # не отменяем общий биндинг переключения таба
         chat.bind('<Key>', self.nav_keys)
         self.chat = chat
         self.empty = True
