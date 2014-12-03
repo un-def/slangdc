@@ -378,7 +378,7 @@ class HubTab(Tab):
         if config.settings['detect_utf8'] and self.dc_settings['encoding'].lower() not in ('utf-8', 'utf8'):
             try:
                 text = text.encode(self.dc_settings['encoding']).decode('utf-8')
-            except UnicodeDecodeError:
+            except (UnicodeEncodeError, UnicodeDecodeError):
                 pass
         text = text.replace('\r\n', '\n')
         repl = '\n' if config.settings['cr2lf'] else ' '
