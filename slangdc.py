@@ -192,6 +192,14 @@ class DCClient:
     debug = False
     _connect_timeout = 30   # таймаут для попытки коннекта (socket.connect и recv при хендшейке)
     _real_timeout = 0.5   # "настоящий" таймаут для recv - вместо блокирующего чтения с заданным в настройках timeout будем много раз (timeout/_real_timeout) пытаться прочитать с маленьким таймаутом; можно было бы использовать select
+    rexps = {
+        'lock': re.compile(b'\$Lock (.+) Pk=.+'),
+        'normal_msg': re.compile('<([^\r\n]+?)> (.*)', re.DOTALL),
+        'me_msg': re.compile('\*+ ?([^\r\n]+?) (.*)', re.DOTALL),
+        'pm': re.compile('\$To: .+? From: (.+?) \$(.+)', re.DOTALL),
+        'lists': re.compile('\$(NickList|OpList|BotList) (.+)'),
+        'myinfo': re.compile('\$MyINFO \$ALL (.+?) ')
+    }
 
     def __init__(self, address, nick=None, password=None, desc="", email="", share=0, slots=1, encoding='utf-8', timeout=600):
         """ address='dchub.com[:port]'
@@ -273,7 +281,7 @@ class DCClient:
                 raise DCSocketError(err.strerror, close=self)
             self.socket.settimeout(self._real_timeout)   # ставим короткий таймаут для имитации неблокирующего режима при чтении
             data = self.recv(timeout=self._connect_timeout, encoding=False)   # $Lock получаем без декодирования (bytes)
-            lock_received = re.fullmatch(b'\$Lock (.+) Pk=.+', data)
+            lock_received = self.rexps['lock'].fullmatch(data)
             if not lock_received:
                 self.message_queue.mput(type=MSGERR, text="$Lock is not received")
                 return False
@@ -467,7 +475,7 @@ class DCClient:
                 возвращает кортеж (nick, text, me) или False
             """
             # '<nick> text' или '<nick> /me text'
-            msg = re.fullmatch('<([^\r\n]+?)> (.*)', msg_string, re.DOTALL)
+            msg = self.rexps['normal_msg'].fullmatch(msg_string)
             if msg:
                 text = dcunescape(msg.group(2))
                 if text.startswith('/me '):
@@ -477,7 +485,7 @@ class DCClient:
                     me = False
                 return (msg.group(1), text, me)
             # '*nick text' или '* nick text' c произвольным количеством *
-            msg = re.fullmatch('\*+ ?([^\r\n]+?) (.*)', msg_string, re.DOTALL)
+            msg = self.rexps['me_msg'].fullmatch(msg_string)
             if msg:
                 text = dcunescape(msg.group(2))
                 return (msg.group(1), text, True)
@@ -521,7 +529,7 @@ class DCClient:
                             self._nicklist.discard(nick)
                     return None
                 else:
-                    pm = re.fullmatch('\$To: .+? From: (.+?) \$(.+)', data, flags=re.DOTALL)
+                    pm = self.rexps['pm'].fullmatch(data)
                     if pm:
                         sender = pm.group(1)
                         # из PM тоже пытаемся извлечь ник, текст сообщения и me
@@ -533,7 +541,7 @@ class DCClient:
                         self.message_queue.mput(type=MSGPM, sender=sender, nick=nick, text=text, me=me)
                         return None
                     if self.userlist or self.msgnick:
-                        nicklist = re.fullmatch('\$(NickList|OpList|BotList) (.+)', data)
+                        nicklist = self.rexps['lists'].fullmatch(data)
                         if nicklist:
                             list_type = {'NickList': 'user', 'OpList': 'op', 'BotList': 'bot'}[nicklist.group(1)]
                             list_ = nicklist.group(2)
@@ -548,7 +556,7 @@ class DCClient:
                             if self.msgnick:
                                 self.message_queue.mput(type=MSGNICK, nick=list_, state='join', role=list_type)
                             return None
-                        myinfo = re.match('\$MyINFO \$ALL (.+?) ', data)
+                        myinfo = self.rexps['myinfo'].match(data)
                         if myinfo:
                             nick = myinfo.group(1)
                             if self.msgnick:

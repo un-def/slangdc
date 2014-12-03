@@ -313,6 +313,7 @@ class HubTab(Tab):
         chat_ul_frame.pack(side=TOP, expand=YES, fill=BOTH)
         self.userlist = UserList(chat_ul_frame, side=RIGHT, expand=NO, fill=Y, nick_callback=self.nick_action)
         self.chat = Chat(chat_ul_frame, side=LEFT, expand=YES, fill=BOTH, nick_callback=self.nick_action)
+        self.re_text_split = re.compile('((?:(?:http|ftp)s?://|magnet:\?xt=urn:tree:tiger:)[^\s]+)')
 
     def close(self):
         self.disconnect()
@@ -396,7 +397,7 @@ class HubTab(Tab):
             msg = ['text', "* ", nick_tag, nick, 'text', " "]
         tags = ('text', 'link')
         cur_tag = 0
-        text_splitted = re.split('((?:(?:http|ftp)s?://|magnet:\?xt=urn:tree:tiger:)[^\s]+)', text)
+        text_splitted = self.re_text_split.split(text)
         for part in text_splitted:
             if part: msg.extend((tags[cur_tag], part))
             cur_tag = 1 - cur_tag
@@ -767,6 +768,7 @@ class Chat(Frame):
         self.link_index = 1   # индекс для тегов ссылок ('link-%d')
         self.nick_callback = nick_callback
         self.lock = threading.Lock()
+        self.re_magnet = re.compile('magnet:\?xt=urn:tree:tiger:[A-Z0-9]{39}&xl=([0-9]+)&dn=([^\s]+)')
 
     def _get_index(self, event):
         return self.chat.index('@{},{}'.format(event.x, event.y))
@@ -841,7 +843,7 @@ class Chat(Frame):
                     link_tag = 'link-' + str(self.link_index)
                     tag = ('link', link_tag)
                     if text.startswith('magnet'):
-                        parsed = re.fullmatch('magnet:\?xt=urn:tree:tiger:[A-Z0-9]{39}&xl=([0-9]+)&dn=([^\s]+)', link)
+                        parsed = self.re_magnet.fullmatch(link)
                         if not parsed:
                             tag = 'broken_link'
                             text = "[broken magnet link] " + link
