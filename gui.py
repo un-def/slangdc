@@ -308,7 +308,7 @@ class HubTab(Tab):
         self.do_connect = False
         self.statusbar_clear()
         self.pass_event = PassEvent()   # эвент для коммуникации между тредами (получения пароля)
-        self.message_box = MessageBox(self.frame, side=BOTTOM, expand=NO, fill=X, submit_callback=self.chat_send)
+        self.message_box = MessageBox(self.frame, side=BOTTOM, expand=NO, fill=X, submit_callback=self.message_submit)
         chat_ul_frame = Frame(self.frame)
         chat_ul_frame.pack(side=TOP, expand=YES, fill=BOTH)
         self.userlist = UserList(chat_ul_frame, side=RIGHT, expand=NO, fill=Y, nick_callback=self.nick_action)
@@ -369,6 +369,8 @@ class HubTab(Tab):
             elif action == 'pm':
                 self.tab_pm_callback(name=(self.name, nick), add_new=True, select=True)
             return True
+        else:
+            return False
 
     def timestamp(self, unix_time=None):
         if not unix_time: unix_time = time.time()
@@ -413,9 +415,35 @@ class HubTab(Tab):
                 return 'user'
         return False
 
-    def chat_send(self, message):
+    def message_submit(self, message):
+        if message.startswith('/'):
+            if message.startswith('/utf8 '):
+                return self.chat_send(message[6:], 'utf-8')
+            elif message == '/disconnect':
+                self.disconnect()
+            elif message == '/connect':
+                self.connect()
+            elif message == '/clear':
+                self.chat.clear()
+            elif message.startswith('/pm '):
+                pm_cmd_split = message.split(maxsplit=2)
+                if len(pm_cmd_split) == 1:
+                    return False
+                nick = pm_cmd_split[1]
+                online = self.nick_action(nick, 'pm')
+                if not online: return False
+                if len(pm_cmd_split) == 3:
+                    self.pm_send(nick, pm_cmd_split[2])
+                return True
+            else:
+                return False
+            return True
+        else:
+            return self.chat_send(message)
+
+    def chat_send(self, message, encoding=None):
         if self.dc and self.dc.connected:
-            self.dc.chat_send(message)
+            self.dc.chat_send(message, encoding)
             return True
         else:
             return False
