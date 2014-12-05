@@ -659,8 +659,8 @@ class TabBar(Frame):
         close_ = Label(button, font=('Helvetica', 5, 'bold'), bg='red', fg='white', text=' X ')
         close_.pack(side=RIGHT)
         label.pack(side=LEFT, expand=YES, fill=BOTH)
-        close_.bind('<Button-1>', lambda e: self.close_tab(name=name))
-        label.bind('<Button-1>', lambda e: self.select_tab(name=name))
+        close_.bind('<Button-1>', lambda e, n=name: self.close_tab(name=n))
+        label.bind('<Button-1>', lambda e, n=name: self.select_tab(name=n))
         tab['button'] = button
         tab['label'] = label
         tab['state'] = state
