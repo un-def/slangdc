@@ -417,7 +417,9 @@ class HubTab(Tab):
 
     def message_submit(self, message):
         if message.startswith('/'):
-            if message.startswith('/utf8 '):
+            if message.startswith('/me '):
+                return self.chat_send(message)
+            elif message.startswith('/utf8 '):
                 return self.chat_send(message[6:], 'utf-8')
             elif message == '/disconnect':
                 self.disconnect()
