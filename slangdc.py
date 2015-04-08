@@ -201,7 +201,7 @@ class DCClient:
         'myinfo': re.compile('\$MyINFO \$ALL (.+?) ')
     }
 
-    def __init__(self, address, nick=None, password=None, desc="", email="", share=0, slots=1, encoding='utf-8', timeout=600):
+    def __init__(self, address, nick=None, password=None, desc="", email="", share=0, slots=1, encoding='utf-8', timeout=600, active=False):
         """ address='dchub.com[:port]'
                 стандартный порт (411) можно не указывать
             nick='nick'
@@ -213,6 +213,8 @@ class DCClient:
             timeout=sec
                 таймаут получения данных из сокета в секундах; по таймауту
                 recv() возбуждает DCSocketError
+            active=False|True
+                режим подключения к хабу (M:P или M:A в теге)
         """
         self.address = address
         host, _, port = address.partition(':')
@@ -229,6 +231,7 @@ class DCClient:
         self.slots = slots
         self.encoding = encoding
         self.timeout = timeout
+        self.active = active
         self.connected = False
         self.connecting = False   # флаг-индикатор процесса коннекта (до и после (не)успешного коннекта — False)
         self.socket = None   # None или socket object (False или True в логическом контексте соответственно)
@@ -328,7 +331,8 @@ class DCClient:
                 getnicklist = '$GetNickList'
             else:
                 getnicklist = ''
-            self.send('$Version 1,0091', getnicklist, '$MyINFO $ALL {0} {1}<slangdc V:{2},M:P,H:0/1/0,S:{3}>$ $100 ${4}${5}$'.format(self.nick, self.desc, version, self.slots, self.email, self.share))
+            mode = 'A' if self.active else 'P'
+            self.send('$Version 1,0091', getnicklist, '$MyINFO $ALL {0} {1}<slangdc V:{2},M:{3},H:0/1/0,S:{4}>$ $100 ${5}${6}$'.format(self.nick, self.desc, version, mode, self.slots, self.email, self.share))
             return True
 
         self.connecting = True
