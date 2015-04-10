@@ -20,12 +20,54 @@ class Config:
         'cr2lf': False
     }
 
+    default_styles = {
+        'window_size': (800, 600),
+        'chat': {
+            'bg': '#FEFEFE',
+            'font': ('Helvetica', 11),
+            'styles': {
+                'timestamp': ('normal', 'gray'),
+                'text': ('normal', 'black'),
+                'link': ('normal underline', 'blue'),
+                'broken_link': ('normal underline', 'gray'),
+                'own_nick': ('bold', 'green'),
+                'user_nick': ('bold', 'black'),
+                'op_nick': ('bold', 'red'),
+                'bot_nick': ('bold', 'magenta'),
+                'error': ('normal', 'red'),
+                'info': ('normal', 'blue')
+            }
+        },
+        'userlist': {
+            'bg': 'white',
+            'font': ('Helvetica', 10, 'normal'),
+            'color_user': 'black',
+            'color_op': 'red',
+            'color_bot': 'magenta'
+        },
+        'tabs': {
+            'color_on': '#D0D0D0',
+            'color_off': '#FF9999',
+            'font_unsel': ('Helvetica', 9, 'normal'),
+            'font_sel': ('Helvetica', 10, 'bold')
+        },
+        'message': {
+            'bg': 'white',
+            'font': ('Helvetica', 11, 'normal'),
+            'color': 'black',
+            'height': 3
+        }
+    }
+
     def __init__(self):
         self.path = (os.path.abspath(os.path.dirname(__file__)))
         self.settings_filename = os.path.join(self.path, 'settings.json')
+        self.styles_filename = os.path.join(self.path, 'styles.json')
         self.bookmarks_filename = os.path.join(self.path, 'bookmarks.json')
         self.load_settings()
+        self.load_styles()
         self.load_bookmarks()
+
 
     def load_file(self, file, default=None, save=False):
         modified = False
@@ -66,6 +108,9 @@ class Config:
     def save_settings(self, settings):
         self.settings = settings
         self.save_file(self.settings_filename, settings)
+
+    def load_styles(self):
+        self.styles = self.load_file(self.styles_filename, default=self.default_styles, save=True)
 
     def load_bookmarks(self):
         self.bookmarks = self.load_file(self.bookmarks_filename, default=[], save=False)

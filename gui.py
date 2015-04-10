@@ -32,7 +32,7 @@ class Gui:
         root = Tk()
         root.title("slangdc.Tk")
         root.protocol('WM_DELETE_WINDOW', root.iconify)
-        root.geometry('800x600+10+10')
+        root.geometry('{0[0]}x{0[1]}+10+10'.format(config.styles['window_size']))
         self.root = root
         main_frame = Frame(root, padx=5, pady=5)
         main_frame.pack(expand=YES, fill=BOTH)
@@ -614,10 +614,6 @@ class AppMenu(Menu):
 class TabBar(Frame):
 
     tab_max_width = 0.2
-    color_on = '#99FF99'
-    color_off = '#FF9999'
-    font_unsel = ('Helvetica', 9, 'normal')
-    font_sel = ('Helvetica', 10, 'bold')
 
     def __init__(self, parent, side, select_callback, close_callback, height=30):
         super().__init__(parent, height=height)
@@ -655,9 +651,9 @@ class TabBar(Frame):
 
     def add_tab(self, name, label='', state=0):
         tab = {'name': name}
-        bg = self.color_on if state else self.color_off
+        bg = config.styles['tabs']['color_on'] if state else config.styles['tabs']['color_off']
         button = Frame(self, bg=bg, bd=1, relief=RAISED, padx=3)
-        label = Label(button, bg=bg, text=label, font=self.font_unsel, anchor=NW)
+        label = Label(button, bg=bg, text=label, font=config.styles['tabs']['font_unsel'], anchor=NW)
         close_ = Label(button, font=('Helvetica', 5, 'bold'), bg='red', fg='white', text=' X ')
         close_.pack(side=RIGHT)
         label.pack(side=LEFT, expand=YES, fill=BOTH)
@@ -703,12 +699,12 @@ class TabBar(Frame):
         if self.selected:
             sel_index = self.tab_index(name=self.selected)
             if not sel_index == -1:
-                self.tabs[sel_index]['label'].config(font=self.font_unsel)
+                self.tabs[sel_index]['label'].config(font=config.styles['tabs']['font_unsel'])
                 self.prev = self.selected
             else:
                 self.prev = None
         self.selected = name
-        self.tabs[index]['label'].config(font=self.font_sel)
+        self.tabs[index]['label'].config(font=config.styles['tabs']['font_sel'])
         self.draw_tabs()
         self.select_callback(name)
 
@@ -719,7 +715,7 @@ class TabBar(Frame):
             self.tabs[index]['label'].config(text=label)
         if not state is None:
             self.tabs[index]['state'] = int(state)
-            bg = self.color_on if state else self.color_off
+            bg = config.styles['tabs']['color_on'] if state else config.styles['tabs']['color_off']
             self.tabs[index]['button'].config(bg=bg)
             self.tabs[index]['label'].config(bg=bg)
 
@@ -737,11 +733,6 @@ class Chat(Frame):
     def __init__(self, parent, side, expand, fill, nick_callback=None):
         Frame.__init__(self, parent)
         self.pack(side=side, expand=expand, fill=fill)
-        font_family = 'Helvetica'
-        font_size = 12
-        font_normal = (font_family, font_size, 'normal')
-        font_bold = (font_family, font_size, 'bold')
-        font_underline = (font_family, font_size, 'normal underline')
         tools_frame = Frame(self, height=36)
         tools_frame.pack_propagate(0)
         tools_frame.pack(side=BOTTOM, expand=NO, fill=BOTH)
@@ -749,24 +740,12 @@ class Chat(Frame):
         self.autoscroll = BooleanVar()
         self.autoscroll.set(True)
         Checkbutton(tools_frame, text='Autoscroll', variable=self.autoscroll).pack(side=LEFT)
-        chat = Text(self, wrap=WORD, cursor='xterm')
+        chat = Text(self, wrap=WORD, cursor='xterm', bg=config.styles['chat']['bg'])
         scroll = Scrollbar(self)
         scroll.config(command=chat.yview)
         scroll.pack(side=RIGHT, fill=Y)
         chat.config(yscrollcommand=scroll.set)
         chat.pack(side=LEFT, expand=YES, fill=BOTH)
-        tags_styles = (
-            ('timestamp', font_normal, 'gray'),
-            ('text', font_normal, 'black'),
-            ('link', font_underline, 'blue'),
-            ('broken_link', font_underline, 'gray'),
-            ('own_nick', font_bold, 'green'),
-            ('user_nick', font_bold, 'black'),
-            ('op_nick', font_bold, 'red'),
-            ('bot_nick', font_bold, 'magenta'),
-            ('error', font_normal, 'red'),
-            ('info', font_normal, 'blue')
-        )
         tags_bindings = (
             ('text',    ('<Double-1>', self.extract_nick, 'insert'),
                         ('<Double-3>', self.extract_nick, 'pm')),
@@ -780,8 +759,8 @@ class Chat(Frame):
             ('bot_nick',    ('<Double-1>', self.nick_click, 'insert'),
                             ('<Double-3>', self.nick_click, 'pm')),
         )
-        for tag, font, color in tags_styles:
-            chat.tag_config(tag, font=font, foreground=color)
+        for tag, (style, color) in config.styles['chat']['styles'].items():
+            chat.tag_config(tag, font=(config.styles['chat']['font'][0], config.styles['chat']['font'][1], style), foreground=color)
         for tag, *bindings in tags_bindings:
             for event, callback, *args in bindings:
                 args.insert(0, tag)
@@ -930,7 +909,7 @@ class UserList(Frame):
         ul_frame = Frame(self)
         ul_frame.pack(side=TOP, expand=YES, fill=BOTH)
         font = ('Helvetica', 10, 'normal')
-        userlist = Listbox(ul_frame, selectmode=SINGLE, activestyle=DOTBOX, width=25, font=font)
+        userlist = Listbox(ul_frame, selectmode=SINGLE, activestyle=DOTBOX, width=25, font=config.styles['userlist']['font'], bg=config.styles['userlist']['bg'])
         scroll = Scrollbar(ul_frame)
         userlist.config(yscrollcommand=scroll.set)
         scroll.config(command=userlist.yview)
@@ -945,11 +924,6 @@ class UserList(Frame):
         self.filter_var = StringVar()
         filter_entry = Entry(filter_frame, textvariable=self.filter_var)
         filter_entry.pack(expand=YES, fill=X)
-        self.colors = {
-            'user': 'black',
-            'op': 'red',
-            'bot': 'magenta'
-        }
         self.nick_callback = nick_callback
         self.clear()
 
@@ -958,7 +932,7 @@ class UserList(Frame):
 
     def add(self, index, user, role):
         self.userlist.insert(index, " " + user)
-        self.userlist.itemconfig(index, foreground=self.colors[role])
+        self.userlist.itemconfig(index, fg=config.styles['userlist']['color_'+role])
 
     def remove(self, index):
         self.userlist.delete(index)
@@ -1033,7 +1007,8 @@ class MessageBox(Frame):
         Frame.__init__(self, parent)
         self.pack(side=side, expand=expand, fill=fill)
         Button(self, text="Send", command=self.submit).pack(side=RIGHT, fill=Y)
-        message_text = Text(self, height=2, font = 'Helvetica', undo=1)
+        cnf = {el: config.styles['message'][el] for el in ('bg', 'font', 'height')}
+        message_text = Text(self, cnf=cnf, fg=config.styles['message']['color'], undo=1)
         message_text.pack(side=LEFT, expand=YES, fill=X)
         message_text.bind('<Control-a>', self.select_all)
         message_text.bind('<Control-A>', self.select_all)
