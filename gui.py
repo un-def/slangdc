@@ -1035,7 +1035,8 @@ class MessageBox(Frame):
         Button(self, text="Send", command=self.submit).pack(side=RIGHT, fill=Y)
         message_text = Text(self, height=2, font = 'Helvetica', undo=1)
         message_text.pack(side=LEFT, expand=YES, fill=X)
-        # запускаем после небольшой задержки, чтобы наш биндинг отработал после системного (который вставляет \n)
+        message_text.bind('<Control-a>', self.select_all)
+        message_text.bind('<Control-A>', self.select_all)
         message_text.bind('<Return>', lambda e: self.submit())
         message_text.bind('<Shift-Return>', lambda e: self.submit(lf2cr=True))   # '\n' --> '\r'
         message_text.bind('<Control-Return>', lambda e: None)   # оверрайдим наш биндинг на Enter, передаём управление дальше системному (который вставит \n)
@@ -1051,6 +1052,10 @@ class MessageBox(Frame):
                 if sended:
                     self.message_text.delete('1.0', END)
         return 'break'   # отменяем системный биндинг
+
+    def select_all(self, event):
+        self.message_text.tag_add(SEL, '1.0', 'end-1c')
+        return 'break'
 
 
 class StatusBar(Frame):
