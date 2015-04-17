@@ -201,7 +201,7 @@ class DCClient:
         'myinfo': re.compile('\$MyINFO \$ALL (.+?) ')
     }
 
-    def __init__(self, address, nick=None, password=None, desc="", email="", share=0, slots=1, encoding='utf-8', timeout=600, active=False):
+    def __init__(self, address, nick=None, password=None, desc="", email="", share=0, slots=1, encoding='utf-8', timeout=600, active=False, detect_utf8=False):
         """ address='dchub.com[:port]'
                 стандартный порт (411) можно не указывать
             nick='nick'
@@ -232,6 +232,7 @@ class DCClient:
         self.encoding = encoding
         self.timeout = timeout
         self.active = active
+        self.detect_utf8 = detect_utf8
         self.connected = False
         self.connecting = False   # флаг-индикатор процесса коннекта (до и после (не)успешного коннекта — False)
         self.socket = None   # None или socket object (False или True в логическом контексте соответственно)
@@ -444,6 +445,11 @@ class DCClient:
         if not encoding:   # если encoding=False
             return data
         else:
+            if self.detect_utf8 and encoding.lower() not in ('utf-8', 'utf8'):
+                try:
+                    return data.decode(encoding='utf-8', errors='strict')
+                except UnicodeDecodeError:
+                    pass
             return data.decode(encoding=encoding, errors='replace')
 
     def receive(self, timeout=None, raise_exc=True, err_message=True, encoding=None):

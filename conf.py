@@ -123,7 +123,7 @@ class Config:
         ''' возвращает словарь аргументов для DCClient.connect из текущих
             настроек (Config.settings) и адреса, если он передан
         '''
-        dc_settings = {s: self.settings[s] for s in ('nick', 'desc', 'email', 'share', 'slots', 'encoding', 'timeout')}
+        dc_settings = {s: self.settings[s] for s in ('nick', 'desc', 'email', 'share', 'slots', 'encoding', 'timeout', 'detect_utf8')}
         if address:
             dc_settings['address'] = address
         return dc_settings

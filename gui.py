@@ -377,11 +377,6 @@ class HubTab(Tab):
         return datetime.fromtimestamp(unix_time).strftime('[%H:%M:%S]')
 
     def format_message(self, nick, text, me):
-        if config.settings['detect_utf8'] and self.dc_settings['encoding'].lower() not in ('utf-8', 'utf8'):
-            try:
-                text = text.encode(self.dc_settings['encoding']).decode('utf-8')
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
         text = text.replace('\r\n', '\n')
         repl = '\n' if config.settings['cr2lf'] else ' '
         text = text.replace('\r', repl)
