@@ -1003,10 +1003,8 @@ class MessageBox(Frame):
         self.pack(side=side, expand=expand, fill=fill)
         Button(self, text="Send", command=self.submit).pack(side=RIGHT, fill=Y)
         cnf = {el: config.styles['message'][el] for el in ('bg', 'font', 'height')}
-        message_text = Text(self, cnf=cnf, fg=config.styles['message']['color'], undo=1)
+        message_text = CustomText(self, cnf=cnf, fg=config.styles['message']['color'], undo=1)
         message_text.pack(side=LEFT, expand=YES, fill=X)
-        message_text.bind('<Control-a>', self.select_all)
-        message_text.bind('<Control-A>', self.select_all)
         message_text.bind('<Return>', lambda e: self.submit())
         message_text.bind('<Shift-Return>', lambda e: self.submit(lf2cr=True))   # '\n' --> '\r'
         message_text.bind('<Control-Return>', lambda e: None)   # оверрайдим наш биндинг на Enter, передаём управление дальше системному (который вставит \n)
@@ -1022,10 +1020,6 @@ class MessageBox(Frame):
                 if sended:
                     self.message_text.delete('1.0', END)
         return 'break'   # отменяем системный биндинг
-
-    def select_all(self, event):
-        self.message_text.tag_add(SEL, '1.0', 'end-1c')
-        return 'break'
 
 
 class StatusBar(Frame):
@@ -1060,7 +1054,7 @@ class StatusBar(Frame):
             self.set(var_name, '')
 
 
-class CustomEntry(Entry):
+class CustomMixin:
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1068,6 +1062,9 @@ class CustomEntry(Entry):
         self.bind('<Control-A>', self.select_all)
         self.bind('<Control-v>', self.paste)
         self.bind('<Control-V>', self.paste)
+
+
+class CustomEntry(CustomMixin, Entry):
 
     def select_all(self, event):
         self.select_from(0)   # select_range не изменяет ANCHOR
@@ -1081,6 +1078,18 @@ class CustomEntry(Entry):
             to = self.index(INSERT)
             if to < from_: from_, to = to, from_
             self.delete(from_, to)
+
+
+class CustomText(CustomMixin, Text):
+
+    def select_all(self, event):
+        self.tag_add(SEL, '1.0', 'end-1c')
+        self.mark_set(INSERT, END)
+        return 'break'
+
+    def paste(self, event):
+        selected = self.tag_ranges(SEL)
+        if selected: self.delete(*selected)
 
 
 class SettingsWindow(Toplevel):
