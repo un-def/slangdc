@@ -50,7 +50,7 @@ class Gui:
         # address entry, quick connect button
         quick_frame = Frame(main_frame, pady=3)
         quick_frame.pack(side=TOP, fill=X)
-        quick_address = Entry(quick_frame)
+        quick_address = CustomEntry(quick_frame)
         quick_address.pack(side=LEFT)
         quick_address.bind('<Return>', self.quick_connect)
         self.quick_address = quick_address
@@ -917,7 +917,7 @@ class UserList(Frame):
         filter_frame.pack_propagate(0)
         filter_frame.pack(side=BOTTOM, expand=NO, fill=BOTH)
         self.filter_var = StringVar()
-        filter_entry = Entry(filter_frame, textvariable=self.filter_var)
+        filter_entry = CustomEntry(filter_frame, textvariable=self.filter_var)
         filter_entry.pack(expand=YES, fill=X)
         self.nick_callback = nick_callback
         self.clear()
@@ -1060,6 +1060,29 @@ class StatusBar(Frame):
             self.set(var_name, '')
 
 
+class CustomEntry(Entry):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.bind('<Control-a>', self.select_all)
+        self.bind('<Control-A>', self.select_all)
+        self.bind('<Control-v>', self.paste)
+        self.bind('<Control-V>', self.paste)
+
+    def select_all(self, event):
+        self.select_from(0)   # select_range не изменяет ANCHOR
+        self.select_to(END)   # поэтому выделяем через select_from+select_to
+        self.icursor(END)
+        return 'break'
+
+    def paste(self, event):
+        if self.select_present():
+            from_ = self.index(ANCHOR)
+            to = self.index(INSERT)
+            if to < from_: from_, to = to, from_
+            self.delete(from_, to)
+
+
 class SettingsWindow(Toplevel):
 
     def __init__(self):
@@ -1093,7 +1116,7 @@ class SettingsWindow(Toplevel):
                 Checkbutton(grid_frame, variable=var).grid(row=row, column=1, sticky=W)
             else:
                 var = StringVar()
-                Entry(grid_frame, width=20, textvariable=var).grid(row=row, column=1)
+                CustomEntry(grid_frame, width=20, textvariable=var).grid(row=row, column=1)
             var.set(config.settings[field_name])
             self.entry_vars[field_name] = (var, field_type)
         Button(self, text="Cancel", width=8, command=self.close).pack(side=RIGHT, padx=5, pady=3)
@@ -1132,7 +1155,7 @@ class PassWindow(Toplevel):
         pass_frame.pack(expand=YES, fill=BOTH)
         Label(pass_frame, text='Password', anchor=W).pack(side=LEFT)
         self.password = StringVar()
-        pass_entry = Entry(pass_frame, show='*', textvariable=self.password)
+        pass_entry = CustomEntry(pass_frame, show='*', textvariable=self.password)
         pass_entry.pack(side=LEFT, expand=YES, fill=X, padx=5)
         pass_entry.focus_set()
         pass_entry.bind('<Return>', self.confirm)
