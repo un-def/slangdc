@@ -408,29 +408,31 @@ class DCClient:
         def _recv(self, timeout):
             attempts = int(timeout / self._real_timeout)
             while attempts:
-                if self.socket:
-                    try:
-                        data = self.socket.recv(1024)
-                    except socket.timeout:
-                        attempts -= 1
-                    except OSError as err:
-                        raise DCSocketError(err.strerror, close=self)
-                    else:
-                        if not data:   # len(data) == 0 --> удаленный сокет закрыт
-                            raise DCSocketError("closed", close=self)
-                        else:
-                            return data
-                else:
+                try:
+                    self.socket_lock.acquire()   # можно было бы вообще избавиться от лока; но пусть будет
+                    data = self.socket.recv(1024)
+                except AttributeError: # 'NoneType' object has no attribute 'recv'
                     return False
+                except socket.timeout:
+                    attempts -= 1
+                except OSError as err:
+                    raise DCSocketError(err.strerror, close=self)
+                else:
+                    if not data:   # len(data) == 0 --> удаленный сокет закрыт
+                        raise DCSocketError("closed", close=self)
+                    else:
+                        return data
+                finally:
+                    self.socket_lock.release()
+                time.sleep(0.001)   # workaround - иначе другой поток "не успевает" захватить блокировку
             raise DCSocketError("receive timeout ({} s)".format(timeout), close=self)
 
         if not self.recv_list:
             recv_data = bytearray()
             if not timeout: timeout = self.timeout
             while True:
-                with self.socket_lock:
-                    chunk = _recv(self, timeout)
-                if not chunk:   # если self.connected=False --> _recv() вернул False
+                chunk = _recv(self, timeout)
+                if not chunk:   # если self.connected=False --> self.socket=None --> _recv() вернул False
                     chunk = b'|'   # recv_data = b'|' --> split --> [b'', b'']
                 recv_data.extend(chunk)
                 if chunk.endswith(b'|'):
