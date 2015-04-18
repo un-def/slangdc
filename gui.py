@@ -723,8 +723,6 @@ class TabBar(Frame):
 
 class Chat(Frame):
 
-    max_lines = 500
-
     def __init__(self, parent, side, expand, fill, nick_callback=None):
         Frame.__init__(self, parent)
         self.pack(side=side, expand=expand, fill=fill)
@@ -862,8 +860,8 @@ class Chat(Frame):
                         self.links[link_tag] = link
                 self.chat.insert(END, text, tag)
             chat_lines = int(self.chat.index('end-1c').split('.')[0])
-            if chat_lines > self.max_lines:
-                del_to = str(chat_lines-self.max_lines+1) + '.0'
+            if chat_lines > config.settings['max_lines']:
+                del_to = str(chat_lines-config.settings['max_lines']+1) + '.0'
                 from_ = '1.0'
                 while True:   # удаляем ссылки, выходящие за пределы max_lines
                     link_range = self.chat.tag_nextrange('link', from_, del_to)
@@ -1101,31 +1099,32 @@ class SettingsWindow(Toplevel):
         self.protocol('WM_DELETE_WINDOW', self.close)
         # (field_name, field_type, field_text)
         fields = (
-            ('nick', 'str', 'Nick'),
+            ('nick', 'str', 'Nick (empty = random)'),
             ('desc', 'str', 'Description'),
             ('email', 'str', 'E-mail'),
             ('share', 'int', 'Share'),
             ('slots', 'int', 'Slots'),
             ('encoding', 'str', 'Encoding'),
-            ('timeout', 'int', 'Receive timeout'),
+            ('timeout', 'int', 'Receive timeout (seconds)'),
             ('reconnect', 'bool', 'Reconnect'),
-            ('reconnect_delay', 'int', 'Reconnect delay'),
+            ('reconnect_delay', 'int', 'Reconnect delay (seconds)'),
             ('show_joins', 'bool', 'Show joins/parts in chat'),
             ('chat_addr_sep', 'str', 'Chat address separator'),
             ('detect_utf8', 'bool', 'Force UTF-8 detection'),
-            ('cr2lf', 'bool', 'Display CR as newline')
+            ('cr2lf', 'bool', 'Display CR as newline'),
+            ('max_lines', 'int', 'Maximum number of lines in chat')
         )
         self.entry_vars = {}
         grid_frame = Frame(self)
         grid_frame.pack(padx=5, pady=5)
         for row, (field_name, field_type, field_text) in enumerate(fields):
-            Label(grid_frame, width=20, text=field_text, anchor=W).grid(row=row, column=0)
+            Label(grid_frame, width=28, text=field_text, anchor=W).grid(row=row, column=0)
             if field_type == 'bool':
                 var = BooleanVar()
                 Checkbutton(grid_frame, variable=var).grid(row=row, column=1, sticky=W)
             else:
                 var = StringVar()
-                CustomEntry(grid_frame, width=20, textvariable=var).grid(row=row, column=1)
+                CustomEntry(grid_frame, width=28, textvariable=var).grid(row=row, column=1)
             var.set(config.settings[field_name])
             self.entry_vars[field_name] = (var, field_type)
         Button(self, text="Cancel", width=8, command=self.close).pack(side=RIGHT, padx=5, pady=3)

@@ -17,7 +17,8 @@ class Config:
         'show_joins': False,
         'chat_addr_sep': ':',
         'detect_utf8': False,
-        'cr2lf': False
+        'cr2lf': False,
+        'max_lines': 500
     }
 
     default_styles = {
