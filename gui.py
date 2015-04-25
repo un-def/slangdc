@@ -770,7 +770,7 @@ class Chat(Frame):
         self.link_index = 1   # индекс для тегов ссылок ('link-%d')
         self.nick_callback = nick_callback
         self.lock = threading.Lock()
-        self.re_magnet = re.compile('magnet:\?xt=urn:tree:tiger:[A-Z0-9]{39}&xl=([0-9]+)&dn=([^\s]+)')
+        self.re_magnet = re.compile('magnet:\?xt=urn:tree:tiger:[A-Za-z0-9]{39}&xl=([0-9]+)&dn=([^\s]+)')
 
     def _get_index(self, event):
         return self.chat.index('@{},{}'.format(event.x, event.y))
