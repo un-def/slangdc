@@ -9,7 +9,14 @@ from tkinter import *
 from tkinter.messagebox import askyesno
 import slangdc
 import conf
+import platform
 
+if platform.system() == 'Linux':
+    TAB_KEY = 'ISO_Left_Tab'
+else:
+    TAB_KEY = 'Tab'
+
+print(TAB_KEY)
 
 def recursive_destroy(widget):
     for child in widget.winfo_children():
@@ -65,7 +72,8 @@ class Gui:
         self.hub_tabs = {}      # {имя_хаб_таба: инстанс, …}
         self.pm_tabs = {}       # {имя_хаб_таба: {имя_PM_таба: инстанс, …}, …}
         self.current_tab = {'type_': None, 'name': None}
-        self.root.bind_all('<Control-Tab>', lambda e: self.tabbar.next_tab())
+        self.root.bind_all('<Control-Tab>', lambda e: self.tabbar.prev_next_tab('next'))
+        self.root.bind_all('<Control-Shift-'+TAB_KEY+'>', lambda e: self.tabbar.prev_next_tab('prev'))
         self.root.after(1000, self.statusbar_update)
 
     ### gui methods ###
@@ -714,11 +722,19 @@ class TabBar(Frame):
             self.tabs[index]['button'].config(bg=bg)
             self.tabs[index]['label'].config(bg=bg)
 
-    def next_tab(self):
+    def prev_next_tab(self, direction):
+        ''' direction = 'prev' | 'next'
+        '''
         if not self.tabs: return False
-        index = self.tab_index(name=self.selected) + 1
-        if index >= len(self.tabs): index = 0
+        index = self.tab_index(name=self.selected)
+        if direction.lower() == 'next':
+            index = index + 1
+            if index >= len(self.tabs): index = 0
+        else:
+            index = index - 1
+            if index < 0: index = len(self.tabs) - 1
         self.select_tab(index=index)
+        return 'break'
 
 
 class Chat(Frame):
