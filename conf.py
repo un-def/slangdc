@@ -140,6 +140,7 @@ class Config:
         dc_settings.update(self.bookmarks[bm_number])
         dc_settings['address'] = address
         dc_settings.pop('name')
+        dc_settings.pop('autoconnect', None)
         return dc_settings
 
     def trim_address(self, address):

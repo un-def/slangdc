@@ -16,8 +16,6 @@ if platform.system() == 'Linux':
 else:
     TAB_KEY = 'Tab'
 
-print(TAB_KEY)
-
 def recursive_destroy(widget):
     for child in widget.winfo_children():
         recursive_destroy(child)
@@ -75,6 +73,8 @@ class Gui:
         self.root.bind_all('<Control-Tab>', lambda e: self.tabbar.prev_next_tab('next'))
         self.root.bind_all('<Control-Shift-'+TAB_KEY+'>', lambda e: self.tabbar.prev_next_tab('prev'))
         self.root.after(1000, self.statusbar_update)
+        for bm_number, bm in enumerate(config.bookmarks):
+            if bm.get('autoconnect'): self.bookmark_connect(bm_number)
 
     ### gui methods ###
 
