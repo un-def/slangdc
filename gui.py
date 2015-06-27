@@ -72,6 +72,7 @@ class Gui:
         self.current_tab = {'type_': None, 'name': None}
         self.root.bind_all('<Control-Tab>', lambda e: self.tabbar.prev_next_tab('next'))
         self.root.bind_all('<Control-Shift-'+TAB_KEY+'>', lambda e: self.tabbar.prev_next_tab('prev'))
+        self.root.bind_all('<Control-w>', lambda e: self.tab_close(**self.current_tab))
         self.root.after(1000, self.statusbar_update)
         for bm_number, bm in enumerate(config.bookmarks):
             if bm.get('autoconnect'): self.bookmark_connect(bm_number)
@@ -156,6 +157,10 @@ class Gui:
             self.pm_tabs[name[0]] = {}
         self.pm_tabs[name[0]][name[1]] = tab
         return tab
+
+    def tab_close(self, type_, name):
+        if not type_ is None:
+            self.tabbar.close_tab(name=self.make_tb_tab_name(type_, name))
 
     def tab_select(self, type_, name):
         # через коллбэк таббара вызывает tab_select_cb
