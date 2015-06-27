@@ -25,8 +25,9 @@ A (very) simple Direct Connect library and Tk-based GUI client. Chat/private mes
 ### Key and mouse bindings
 
 *Global*
+* **Ctrl+W** — close current tab
 * **Ctrl+Tab** — next tab
-* **Ctrl+Shitf+Tab** — previous tab
+* **Ctrl+Shift+Tab** — previous tab
 
 *Message text box*
 * **Enter** — send message
@@ -55,5 +56,5 @@ bookmark object keys:
 
 * **name** — bookmark name (in Bookmarks menu) (required)
 * **address** — hub address (required)
-* **autoconnect** — autoconnect to hub at startup (0 or 1) (optional)
+* **autoconnect** — autoconnect to hub at startup (0, false, 1, or true) (optional)
 * **nick**, **desc**, **email**, **share**, **slots**, **encoding**, **timeout** — override settings.json values (optional)
