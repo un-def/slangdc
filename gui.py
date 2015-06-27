@@ -45,10 +45,10 @@ class Gui:
         menu = AppMenu(root)
         menu.add_bookmarks(config.bookmarks, self.bookmark_connect)
         buttons = (
-            ('Connect', self.connect),
-            ('Disconnect', self.disconnect),
-            ('Settings', self.show_settings),
-            ('Quit', self.quit)
+            ('Connect', 0, self.connect),
+            ('Disconnect', 0, self.disconnect),
+            ('Settings', 0, self.show_settings),
+            ('Quit', 0, self.quit)
         )
         menu.add_buttons(buttons)
         self.menu = menu
@@ -609,14 +609,20 @@ class AppMenu(Menu):
         if bookmarks:
             for bm_number, bookmark in enumerate(bookmarks):
                 if 'name' in bookmark:
-                    menu_bookmarks.add_command(label=bookmark['name'], command=lambda n=bm_number: action(n))
+                    if bm_number < 9:
+                        label = "{0}  {1}".format(bm_number+1, bookmark['name'])
+                        underline = 0
+                    else:
+                        label = "    " + bookmark['name']
+                        underline = None
+                    menu_bookmarks.add_command(label=label, command=lambda n=bm_number: action(n), underline=underline)
         else:
             menu_bookmarks.add_command(label="Empty", state=DISABLED)
-        self.add_cascade(label="Bookmarks", menu=menu_bookmarks)
+        self.add_cascade(label="Bookmarks", menu=menu_bookmarks, underline=0)
 
     def add_buttons(self, buttons):
-        for btn_txt, btn_cmd in buttons:
-            self.add_command(label=btn_txt, command=btn_cmd)
+        for btn_txt, underline, btn_cmd in buttons:
+            self.add_command(label=btn_txt, command=btn_cmd, underline=underline)
 
 
 class TabBar(Frame):
@@ -784,6 +790,7 @@ class Chat(Frame):
         chat.bind('<Control-c>', self.text_copy)
         chat.bind('<Control-C>', self.text_copy)
         chat.bind('<Control-Tab>', lambda e: None)   # не отменяем общий биндинг переключения таба
+        chat.bind('<Alt-Key>', lambda e: None)   # не перехватываем шоткаты меню
         chat.bind('<Key>', self.nav_keys)
         self.chat = chat
         self.empty = True
