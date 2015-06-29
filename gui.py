@@ -37,7 +37,7 @@ class Gui:
         root = Tk()
         root.title("slangdc.Tk")
         root.protocol('WM_DELETE_WINDOW', root.iconify)
-        root.geometry('{0[0]}x{0[1]}+10+10'.format(config.styles['window_size']))
+        root.geometry('{0[0]}x{0[1]}+10+10'.format(config.styles.window_size))
         self.root = root
         main_frame = Frame(root, padx=5, pady=5)
         main_frame.pack(expand=YES, fill=BOTH)
@@ -376,7 +376,7 @@ class HubTab(Tab):
         if self.dc and nick != self.dc.nick and self.dc.userlist and nick in self.dc.userlist:
             if action == 'insert':   # вставить ник в чат
                 if self.message_box.message_text.index(INSERT) == '1.0':   # если курсор стоит в начале поля ввода,
-                    nick = nick + config.settings['chat_addr_sep'] + ' '   # то вставляем ник как обращение
+                    nick = nick + config.settings.chat_addr_sep + ' '   # то вставляем ник как обращение
                 self.message_box.message_text.insert(INSERT, nick)
                 self.message_box.message_text.focus_set()
             elif action == 'pm':
@@ -391,7 +391,7 @@ class HubTab(Tab):
 
     def format_message(self, nick, text, me):
         text = text.replace('\r\n', '\n')
-        repl = '\n' if config.settings['cr2lf'] else ' '
+        repl = '\n' if config.settings.cr2lf else ' '
         text = text.replace('\r', repl)
         nick_tag = 'user_nick'
         if self.dc:
@@ -471,9 +471,9 @@ class HubTab(Tab):
             self.set_state_pm_tabs(0)
             self.userlist.clear()
             self.statusbar_clear()
-            if self.do_connect and config.settings['reconnect'] and config.settings['reconnect_delay'] > 0:
+            if self.do_connect and config.settings.reconnect and config.settings.reconnect_delay > 0:
                 self.connect_loop_running = True
-                self.frame.after(config.settings['reconnect_delay']*1000, self.connect_loop)
+                self.frame.after(config.settings.reconnect_delay*1000, self.connect_loop)
         else:
             if not self.state and self.dc.connected:
                 self.state = 1
@@ -531,7 +531,7 @@ class HubTab(Tab):
                     elif message['text'].startswith('HubTopic: '):
                         self.statusbar['hubtopic'] = self.dc.hubtopic
                 elif message['type'] == slangdc.MSGNICK:
-                    if config.settings['show_joins'] and isinstance(message['nick'], str):
+                    if config.settings.show_joins and isinstance(message['nick'], str):
                         msg = ('info', "*** {0}s: {1}".format(message['state'], message['nick']))
                     else:
                         msg = None
@@ -665,9 +665,9 @@ class TabBar(Frame):
 
     def add_tab(self, name, label='', state=0):
         tab = {'name': name}
-        bg = config.styles['tabs']['color_on'] if state else config.styles['tabs']['color_off']
+        bg = config.styles.tabs.color_on if state else config.styles.tabs.color_off
         button = Frame(self, bg=bg, bd=1, relief=RAISED, padx=3)
-        label = Label(button, bg=bg, text=label, font=config.styles['tabs']['font_unsel'], anchor=NW)
+        label = Label(button, bg=bg, text=label, font=config.styles.tabs.font_unsel, anchor=NW)
         close_ = Label(button, font=('Helvetica', 5, 'bold'), bg='red', fg='white', text=' X ')
         close_.pack(side=RIGHT)
         label.pack(side=LEFT, expand=YES, fill=BOTH)
@@ -713,12 +713,12 @@ class TabBar(Frame):
         if self.selected:
             sel_index = self.tab_index(name=self.selected)
             if not sel_index == -1:
-                self.tabs[sel_index]['label'].config(font=config.styles['tabs']['font_unsel'])
+                self.tabs[sel_index]['label'].config(font=config.styles.tabs.font_unsel)
                 self.prev = self.selected
             else:
                 self.prev = None
         self.selected = name
-        self.tabs[index]['label'].config(font=config.styles['tabs']['font_sel'])
+        self.tabs[index]['label'].config(font=config.styles.tabs.font_sel)
         self.draw_tabs()
         self.select_callback(name)
 
@@ -729,7 +729,7 @@ class TabBar(Frame):
             self.tabs[index]['label'].config(text=label)
         if not state is None:
             self.tabs[index]['state'] = int(state)
-            bg = config.styles['tabs']['color_on'] if state else config.styles['tabs']['color_off']
+            bg = config.styles.tabs.color_on if state else config.styles.tabs.color_off
             self.tabs[index]['button'].config(bg=bg)
             self.tabs[index]['label'].config(bg=bg)
 
@@ -760,7 +760,7 @@ class Chat(Frame):
         self.autoscroll = BooleanVar()
         self.autoscroll.set(True)
         Checkbutton(tools_frame, text='Autoscroll', variable=self.autoscroll).pack(side=LEFT)
-        chat = Text(self, wrap=WORD, cursor='xterm', bg=config.styles['chat']['bg'])
+        chat = Text(self, wrap=WORD, cursor='xterm', bg=config.styles.chat.bg)
         scroll = Scrollbar(self)
         scroll.config(command=chat.yview)
         scroll.pack(side=RIGHT, fill=Y)
@@ -779,8 +779,8 @@ class Chat(Frame):
             ('bot_nick',    ('<Double-1>', self.nick_click, 'insert'),
                             ('<Double-3>', self.nick_click, 'pm')),
         )
-        for tag, (style, color) in config.styles['chat']['styles'].items():
-            chat.tag_config(tag, font=(config.styles['chat']['font'][0], config.styles['chat']['font'][1], style), foreground=color)
+        for tag, (style, color) in config.styles.chat.styles.items():
+            chat.tag_config(tag, font=(config.styles.chat.font[0], config.styles.chat.font[1], style), foreground=color)
         for tag, *bindings in tags_bindings:
             for event, callback, *args in bindings:
                 args.insert(0, tag)
@@ -888,8 +888,8 @@ class Chat(Frame):
                         self.links[link_tag] = link
                 self.chat.insert(END, text, tag)
             chat_lines = int(self.chat.index('end-1c').split('.')[0])
-            if chat_lines > config.settings['max_lines']:
-                del_to = str(chat_lines-config.settings['max_lines']+1) + '.0'
+            if chat_lines > config.settings.max_lines:
+                del_to = str(chat_lines-config.settings.max_lines+1) + '.0'
                 from_ = '1.0'
                 while True:   # удаляем ссылки, выходящие за пределы max_lines
                     link_range = self.chat.tag_nextrange('link', from_, del_to)
@@ -930,7 +930,7 @@ class UserList(Frame):
         ul_frame = Frame(self)
         ul_frame.pack(side=TOP, expand=YES, fill=BOTH)
         font = ('Helvetica', 10, 'normal')
-        userlist = Listbox(ul_frame, selectmode=SINGLE, activestyle=DOTBOX, width=25, font=config.styles['userlist']['font'], bg=config.styles['userlist']['bg'])
+        userlist = Listbox(ul_frame, selectmode=SINGLE, activestyle=DOTBOX, width=25, font=config.styles.userlist.font, bg=config.styles.userlist.bg)
         scroll = Scrollbar(ul_frame)
         userlist.config(yscrollcommand=scroll.set)
         scroll.config(command=userlist.yview)
@@ -953,7 +953,7 @@ class UserList(Frame):
 
     def add(self, index, user, role):
         self.userlist.insert(index, " " + user)
-        self.userlist.itemconfig(index, fg=config.styles['userlist']['color_'+role])
+        self.userlist.itemconfig(index, fg=config.styles.userlist['color_'+role])
 
     def remove(self, index):
         self.userlist.delete(index)
@@ -1028,8 +1028,8 @@ class MessageBox(Frame):
         Frame.__init__(self, parent)
         self.pack(side=side, expand=expand, fill=fill)
         Button(self, text="Send", command=self.submit).pack(side=RIGHT, fill=Y)
-        cnf = {el: config.styles['message'][el] for el in ('bg', 'font', 'height')}
-        message_text = CustomText(self, cnf=cnf, fg=config.styles['message']['color'], undo=1)
+        cnf = {el: config.styles.message[el] for el in ('bg', 'font', 'height')}
+        message_text = CustomText(self, cnf=cnf, fg=config.styles.message.color, undo=1)
         message_text.pack(side=LEFT, expand=YES, fill=X)
         message_text.bind('<Return>', lambda e: self.submit())
         message_text.bind('<Shift-Return>', lambda e: self.submit(lf2cr=True))   # '\n' --> '\r'
@@ -1159,7 +1159,7 @@ class SettingsWindow(Toplevel):
         Button(self, text="Save", width=8, command=self.save).pack(side=RIGHT)
 
     def save(self):
-        new_settings = {}
+        new_settings = conf.DNDict()
         for field_name, (entry_var, field_type) in self.entry_vars.items():
             val = entry_var.get()
             if field_type in ('str', 'int'):

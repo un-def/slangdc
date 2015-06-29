@@ -1,10 +1,21 @@
 # -*-coding: UTF-8 -*-
 import os
 import json
+import copy
+
+
+class DNDict(dict):
+    ''' словарь с точечной нотацией доступа к элементам
+    '''
+    def __getattr__(self, name):
+        if name.startswith('__'):
+            raise AttributeError
+        return self[name]
+
 
 class Config:
 
-    default_settings = {
+    default_settings = DNDict({
         'nick': '',
         'desc': 'slangdc',
         'email': '',
@@ -19,14 +30,14 @@ class Config:
         'detect_utf8': False,
         'cr2lf': False,
         'max_lines': 500
-    }
+    })
 
-    default_styles = {
+    default_styles = DNDict({
         'window_size': (800, 600),
-        'chat': {
+        'chat': DNDict({
             'bg': '#FEFEFE',
             'font': ('Helvetica', 11),
-            'styles': {
+            'styles': DNDict({
                 'timestamp': ('normal', 'gray'),
                 'text': ('normal', 'black'),
                 'link': ('normal underline', 'blue'),
@@ -37,28 +48,28 @@ class Config:
                 'bot_nick': ('bold', 'magenta'),
                 'error': ('normal', 'red'),
                 'info': ('normal', 'blue')
-            }
-        },
-        'userlist': {
+            })
+        }),
+        'userlist': DNDict({
             'bg': 'white',
             'font': ('Helvetica', 10, 'normal'),
             'color_user': 'black',
             'color_op': 'red',
             'color_bot': 'magenta'
-        },
-        'tabs': {
+        }),
+        'tabs': DNDict({
             'color_on': '#D0D0D0',
             'color_off': '#FF9999',
             'font_unsel': ('Helvetica', 9, 'normal'),
             'font_sel': ('Helvetica', 10, 'bold')
-        },
-        'message': {
+        }),
+        'message': DNDict({
             'bg': 'white',
             'font': ('Helvetica', 11, 'normal'),
             'color': 'black',
             'height': 3
-        }
-    }
+        })
+    })
 
     def __init__(self):
         self.path = (os.path.abspath(os.path.dirname(__file__)))
@@ -77,23 +88,20 @@ class Config:
             fo = open(file)
         except FileNotFoundError:
             if not default is None:
-                conf = default.copy()
+                conf = copy.deepcopy(default)
                 modified = True
         else:
             try:
-                conf = json.load(fo)
+                conf = json.load(fo, object_hook=lambda d: DNDict(d))
             except ValueError:
                 fo.close()
                 if not default is None:
-                    conf = default.copy()
+                    conf = copy.deepcopy(default)
                     modified = True
             else:
                 fo.close()
                 if default and not modified:
-                    for k in default:
-                        if k not in conf:
-                            conf[k] = default[k]
-                            modified = True
+                    modified, conf = self.check_config(conf, default)
         if save and modified:
             self.save_file(file, conf)
         return conf
@@ -143,6 +151,19 @@ class Config:
         dc_settings.pop('autoconnect', None)
         return dc_settings
 
-    def trim_address(self, address):
+    def check_config(self, conf, default, modified=False):
+        ''' сравнивает конфиги conf и default и при необходимости копирует
+            недостающие элементы из default (рекурсивно)
+        '''
+        for k in default:
+            if k not in conf:
+                conf[k] = default[k]
+                modified = True
+            elif isinstance(default[k], dict):
+                modified, conf[k] = self.check_config(conf[k], default[k], modified)
+        return modified, conf
+
+    @staticmethod
+    def trim_address(address):
         address = address.strip().rstrip('/').split('//')[-1]
         return address[:-4] if address.endswith(':411') else address
